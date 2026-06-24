@@ -30,7 +30,9 @@
   .opts{display:flex;justify-content:center;gap:14px;align-items:center;margin:4px auto 2px;color:var(--mut);font-size:13px;flex-wrap:wrap}
   .opts label{display:flex;gap:7px;align-items:center;cursor:pointer}
   .opts input{width:auto;margin:0}
-  .opts .keylink{color:var(--acc);cursor:pointer;text-decoration:underline}
+  .seg{display:inline-flex;border:1px solid #2a313c;border-radius:20px;overflow:hidden;background:#11151b}
+  .seg button{width:auto;margin:0;border-radius:0;background:transparent;color:var(--mut);font-weight:600;padding:7px 18px;font-size:13px}
+  .seg button.active{background:var(--acc);color:#04101f}
   .cats{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;max-width:760px;margin:10px auto 2px;padding:0 16px}
   .cat{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);background:#11151b;border:1px solid #262d38;border-radius:20px;padding:4px 11px;cursor:pointer;user-select:none}
   .cat:hover{border-color:#39465a}
@@ -112,7 +114,10 @@
 </div>
 
 <div class="opts">
-  <label><input type="checkbox" id="incltv"> Inkludera TV-serier</label>
+  <div class="seg" id="mediaToggle">
+    <button data-m="movie" class="active">Filmer</button>
+    <button data-m="tv">TV-serier</button>
+  </div>
 </div>
 
 <div class="yearbox">
@@ -305,7 +310,8 @@ async function enrichResults(raw,sort){
 }
 
 /* ====================== Sökning ====================== */
-async function searchMovies(query,page,ymin,ymax,includeTv,genres){
+async function searchMovies(query,page,ymin,ymax,media,genres){
+  const isTv=media==="tv";
   const plan=await resolveQuery(query);
   const {blacklist,without}=genreSetup(genres);
   const discMovie=ex=>tmdb("/discover/movie",Object.assign(
@@ -318,12 +324,12 @@ async function searchMovies(query,page,ymin,ymax,includeTv,genres){
   let raw=[], total_pages=1, mode;
   if(plan.kind==="person"){
     mode="person";
-    if(includeTv){
-      let cc={}; try{ cc=await tmdb(`/person/${plan.person}/combined_credits`,{language:"en-US"}); }catch(e){}
+    if(isTv){
+      let cc={}; try{ cc=await tmdb(`/person/${plan.person}/tv_credits`,{language:"en-US"}); }catch(e){}
       const seen=new Set();
       for(const c of (cc.cast||[]).concat(cc.crew||[])){
-        const m=c.media_type; if(m!=="movie"&&m!=="tv")continue; if((c.vote_count||0)<20)continue;
-        const k=m+":"+c.id; if(seen.has(k))continue; seen.add(k); c._mt=m; raw.push(c);
+        if((c.vote_count||0)<10)continue;
+        if(seen.has(c.id))continue; seen.add(c.id); c._mt="tv"; raw.push(c);
       }
     }else{
       const d=await discMovie({with_people:plan.person,"vote_count.gte":80});
@@ -331,14 +337,14 @@ async function searchMovies(query,page,ymin,ymax,includeTv,genres){
     }
   }else if(plan.kind==="keywords_and"||plan.kind==="keywords_or"){
     mode="tema"; const op=plan.kind==="keywords_and"?",":"|"; const kw=plan.ids.join(op);
-    const dm=await discMovie({with_keywords:kw}); raw=raw.concat(tag(dm.results||[],"movie")); total_pages=dm.total_pages||1;
-    if(includeTv){ const dt=await discTv({with_keywords:kw}); raw=raw.concat(tag(dt.results||[],"tv")); total_pages=Math.max(total_pages,dt.total_pages||1); }
+    if(isTv){ const dt=await discTv({with_keywords:kw}); raw=tag(dt.results||[],"tv"); total_pages=dt.total_pages||1; }
+    else{ const dm=await discMovie({with_keywords:kw}); raw=tag(dm.results||[],"movie"); total_pages=dm.total_pages||1; }
   }else{
     mode="titel";
-    const sm=await tmdb("/search/movie",{query,include_adult:"false",language:"en-US",page});
-    raw=raw.concat(tag(sm.results||[],"movie")); total_pages=sm.total_pages||1;
-    if(includeTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
-      raw=raw.concat(tag(st.results||[],"tv")); total_pages=Math.max(total_pages,st.total_pages||1); }
+    if(isTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
+      raw=tag(st.results||[],"tv"); total_pages=st.total_pages||1; }
+    else{ const sm=await tmdb("/search/movie",{query,include_adult:"false",language:"en-US",page});
+      raw=tag(sm.results||[],"movie"); total_pages=sm.total_pages||1; }
   }
 
   raw=raw.filter(m=>{
@@ -354,17 +360,16 @@ async function searchMovies(query,page,ymin,ymax,includeTv,genres){
 
 /* ====================== Rekommendationer ====================== */
 const recCache={};
-async function recommendPool(titles,ymin,ymax,includeTv,genres){
+async function recommendPool(titles,ymin,ymax,media,genres){
+  const isTv=media==="tv";
+  const path=isTv?"/search/tv":"/search/movie";
   const {blacklist}=genreSetup(genres);
   const liked=new Set(), recognized=[], unknown=[];
   await Promise.all(titles.map(async t=>{
     let res=[];
-    try{
-      if(includeTv){ res=((await tmdb("/search/multi",{query:t,include_adult:"false",language:"en-US"})).results||[]).filter(r=>r.media_type==="movie"||r.media_type==="tv"); }
-      else{ res=((await tmdb("/search/movie",{query:t,include_adult:"false",language:"en-US"})).results||[]); res.forEach(r=>r.media_type="movie"); }
-    }catch(e){}
+    try{ res=((await tmdb(path,{query:t,include_adult:"false",language:"en-US"})).results||[]); }catch(e){}
     const hit=res[0];
-    if(hit){ const mt=hit.media_type||"movie"; liked.add(mt+":"+hit.id); recognized.push({q:t,title:hit.title||hit.name,id:hit.id,media:mt}); }
+    if(hit){ liked.add(media+":"+hit.id); recognized.push({q:t,title:hit.title||hit.name,id:hit.id,media}); }
     else unknown.push(t);
   }));
   if(!liked.size) return {ranked:[],score:{},recognized:[],unknown};
@@ -394,10 +399,10 @@ async function recommendPool(titles,ymin,ymax,includeTv,genres){
   }).slice(0,240).map(e=>e[1]);
   return {ranked,score,recognized,unknown};
 }
-async function recommendMovies(titles,ymin,ymax,includeTv,page,genres){
-  const ck=JSON.stringify([titles,ymin,ymax,includeTv,(genres||[]).slice().sort()]);
+async function recommendMovies(titles,ymin,ymax,media,page,genres){
+  const ck=JSON.stringify([titles,ymin,ymax,media,(genres||[]).slice().sort()]);
   let pool=recCache[ck];
-  if(!pool){ pool=await recommendPool(titles,ymin,ymax,includeTv,genres); recCache[ck]=pool; }
+  if(!pool){ pool=await recommendPool(titles,ymin,ymax,media,genres); recCache[ck]=pool; }
   const ranked=pool.ranked, score=pool.score, total=ranked.length, per=20;
   const total_pages=Math.max(1,Math.ceil(total/per));
   page=Math.min(Math.max(1,page),total_pages);
@@ -476,10 +481,15 @@ function tab(name,restore){
 $("#q").value=LS.get("film_q","");
 $("#q").addEventListener("input",()=>LS.set("film_q",$("#q").value));
 
-// TV-checkbox
-const TV=$("#incltv");
-TV.checked=LS.get("film_incltv","0")==="1";
-TV.addEventListener("change",()=>{ LS.set("film_incltv",TV.checked?"1":"0"); rerun(); });
+// Media-switch (Filmer / TV-serier)
+let mediaMode=LS.get("film_media","movie")==="tv"?"tv":"movie";
+const MEDIA_BTNS=[...document.querySelectorAll("#mediaToggle button")];
+function paintMedia(){ MEDIA_BTNS.forEach(b=>b.classList.toggle("active",b.dataset.m===mediaMode)); }
+paintMedia();
+MEDIA_BTNS.forEach(b=>b.addEventListener("click",()=>{
+  if(mediaMode===b.dataset.m) return;
+  mediaMode=b.dataset.m; LS.set("film_media",mediaMode); paintMedia(); rerun();
+}));
 
 // Kategori-kryssrutor (byggs i JS)
 $("#cats").innerHTML=GENRE_OPTIONS.map(([k,l])=>
@@ -509,7 +519,7 @@ async function go(page){
   const q=$("#q").value.trim(); if(!q) return;
   cur.q=q; cur.page=page; cur.mode="search";
   $("#status").textContent="Söker…"; $("#pager").innerHTML="";
-  try{ const d=await searchMovies(q,page,+YMIN.value,+YMAX.value,TV.checked,selectedCats()); render(d); }
+  try{ const d=await searchMovies(q,page,+YMIN.value,+YMAX.value,mediaMode,selectedCats()); render(d); }
   catch(e){ $("#status").textContent="Fel: "+e.message; $("#grid").innerHTML=""; }
 }
 async function recommend(page){
@@ -521,7 +531,7 @@ async function recommend(page){
   cur.mode="rec"; cur.page=page;
   $("#status").textContent="Letar förslag…"; $("#grid").innerHTML=""; $("#pager").innerHTML="";
   try{
-    const d=await recommendMovies(titles,+YMIN.value,+YMAX.value,TV.checked,page,selectedCats());
+    const d=await recommendMovies(titles,+YMIN.value,+YMAX.value,mediaMode,page,selectedCats());
     const rec=(d.recognized||[]).map(x=>esc(x.title||x.q)).join(", ");
     let info=rec?`Baserat på: ${rec}.`:"";
     if(d.unknown&&d.unknown.length) info+=` <span class="unknown">Hittade inte: ${d.unknown.map(esc).join(", ")}.</span>`;
