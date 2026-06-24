@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Filmutforskare</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='56' height='40' rx='6' fill='%23171b22' stroke='%234da3ff' stroke-width='3'/%3E%3Cpath d='M4 26 L60 26' stroke='%234da3ff' stroke-width='2'/%3E%3Cg fill='%234da3ff'%3E%3Cpolygon points='10,14 18,14 12,26 4,26'/%3E%3Cpolygon points='22,14 30,14 24,26 16,26'/%3E%3Cpolygon points='34,14 42,14 36,26 28,26'/%3E%3Cpolygon points='46,14 54,14 48,26 40,26'/%3E%3C/g%3E%3Cpolygon points='26,34 26,48 40,41' fill='%23f5c451'/%3E%3C/svg%3E">
+<style>
+  :root{--bg:#0e1116;--card:#171b22;--mut:#8b97a7;--fg:#e7ecf2;--acc:#4da3ff;--gold:#f5c451}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+  header{padding:22px 18px 8px;text-align:center}
+  h1{margin:0 0 4px;font-size:22px;font-weight:650}
+  .sub{color:var(--mut);font-size:13px}
+  .searchbar{display:flex;gap:8px;max-width:640px;margin:16px auto 6px;padding:0 14px}
+  input{flex:1;padding:11px 14px;border-radius:10px;border:1px solid #2a313c;background:#11151b;color:var(--fg);font-size:15px}
+  button{padding:11px 18px;border:0;border-radius:10px;background:var(--acc);color:#04101f;font-weight:650;cursor:pointer}
+  button.ghost{background:#1c222b;color:var(--fg)}
+  .tabs{display:flex;gap:8px;justify-content:center;margin:14px auto 4px}
+  .tabs button{width:auto;margin:0;background:#1c222b;color:var(--mut);padding:8px 18px;font-weight:600}
+  .tabs button.active{background:var(--acc);color:#04101f}
+  .panel{display:none}
+  .panel.active{display:block}
+  .likebox{max-width:640px;margin:14px auto 4px;padding:0 16px}
+  .likebox textarea{width:100%;min-height:150px;padding:12px 14px;border-radius:10px;border:1px solid #2a313c;background:#11151b;color:var(--fg);font-size:14px;resize:vertical;font-family:inherit}
+  .likebox .row{display:flex;gap:8px;margin-top:8px}
+  .likebox .row button{margin:0}
+  .recinfo{max-width:640px;margin:6px auto;padding:0 16px;color:var(--mut);font-size:12.5px}
+  .recinfo .unknown{color:#e0a14b}
+  .opts{display:flex;justify-content:center;gap:14px;align-items:center;margin:4px auto 2px;color:var(--mut);font-size:13px;flex-wrap:wrap}
+  .opts label{display:flex;gap:7px;align-items:center;cursor:pointer}
+  .opts input{width:auto;margin:0}
+  .opts .keylink{color:var(--acc);cursor:pointer;text-decoration:underline}
+  .cats{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;max-width:760px;margin:10px auto 2px;padding:0 16px}
+  .cat{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mut);background:#11151b;border:1px solid #262d38;border-radius:20px;padding:4px 11px;cursor:pointer;user-select:none}
+  .cat:hover{border-color:#39465a}
+  .cat input{width:auto;margin:0}
+  .cat.on{color:#04101f;background:var(--acc);border-color:var(--acc);font-weight:600}
+  .catlabel{text-align:center;color:var(--mut);font-size:12px;margin:8px auto 0}
+  .yearbox{max-width:640px;margin:10px auto 2px;padding:0 16px}
+  .yearlabel{display:flex;justify-content:space-between;color:var(--mut);font-size:13px;margin-bottom:6px}
+  .yearlabel b{color:var(--fg)}
+  .slider{position:relative;height:30px}
+  .slider .track{position:absolute;top:13px;left:0;right:0;height:4px;border-radius:3px;background:#2a313c}
+  .slider .range{position:absolute;top:13px;height:4px;border-radius:3px;background:var(--acc)}
+  .slider input[type=range]{position:absolute;top:0;left:0;width:100%;height:30px;margin:0;-webkit-appearance:none;appearance:none;background:none;pointer-events:none}
+  .slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--acc);border:2px solid #04101f;cursor:pointer}
+  .slider input[type=range]::-moz-range-thumb{pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--acc);border:2px solid #04101f;cursor:pointer}
+  .status{text-align:center;color:var(--mut);min-height:20px;font-size:13px;margin:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;max-width:1180px;margin:8px auto 30px;padding:0 16px}
+  .card{background:var(--card);border:1px solid #232a34;border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+  .poster{aspect-ratio:2/3;background:#0a0d12 center/cover no-repeat;position:relative}
+  .noposter{display:flex;align-items:center;justify-content:center;height:100%;color:#3a4452;font-size:13px}
+  .badge{position:absolute;top:8px;right:8px;background:rgba(8,12,18,.85);color:var(--gold);font-weight:700;padding:3px 8px;border-radius:8px;font-size:13px}
+  .badge small{color:var(--mut);font-weight:500}
+  .body{padding:11px 12px 13px;display:flex;flex-direction:column;gap:7px;flex:1}
+  .title{font-weight:650;line-height:1.25}
+  .title span{color:var(--mut);font-weight:500;font-size:13px}
+  .genres{display:flex;flex-wrap:wrap;gap:5px}
+  .tag{font-size:11px;color:var(--mut);background:#10141a;border:1px solid #262d38;padding:2px 7px;border-radius:20px}
+  .tag.tv{color:#9fd0ff;border-color:#2c4a6b;background:#12243a}
+  .ov{font-size:12.5px;color:#b7c1cf;max-height:84px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical}
+  .why{font-size:11px;color:var(--acc);font-weight:600}
+  .links{display:flex;gap:8px;margin-top:auto;padding-top:4px}
+  .links a,.links button{flex:1;text-align:center;text-decoration:none;font-size:13px;font-weight:600;padding:7px;border-radius:8px;margin:0;cursor:pointer;border:0}
+  .trailer{background:#7a1f1f33;color:#ff9a9a;border:1px solid #7a1f1f!important}
+  .imdb{background:#3a3411;color:var(--gold);border:1px solid #5a5118}
+  .tip{position:fixed;z-index:50;width:300px;max-width:86vw;background:#0f141b;border:1px solid #2c3744;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.6);padding:13px 15px;opacity:0;pointer-events:none;transition:opacity .12s;font-size:13px}
+  .tip.show{opacity:1}
+  .tip h4{margin:0 0 3px;font-size:15px;font-weight:650}
+  .tip .ovfull{color:#cdd6e1;line-height:1.45;max-height:230px;overflow:auto}
+  .tip .crew{margin-top:9px;font-size:12.5px}
+  .tip .crew .lbl{color:var(--mut)}
+  .tip .loading{color:var(--mut)}
+  .pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:6px auto 40px}
+  .pager span{color:var(--mut)}
+  .modal{position:fixed;inset:0;background:rgba(4,8,14,.82);display:none;align-items:center;justify-content:center;z-index:100;padding:18px}
+  .modal.show{display:flex}
+  .modal .box{background:var(--card);border:1px solid #2c3744;border-radius:16px;padding:24px;max-width:460px;width:100%}
+  .modal h3{margin:0 0 8px}
+  .modal p{color:var(--mut);font-size:13px;margin:0 0 14px}
+  .modal label{display:block;font-size:13px;margin:10px 0 4px}
+  .modal a{color:var(--acc)}
+  .modal .save{width:100%;margin-top:16px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Filmutforskare</h1>
+  <div class="sub">Sök på <b>tema</b> (fängelsefilm, rymd, heist), <b>titel</b>, <b>skådespelare</b> eller <b>regissör</b> (Van Damme, Tarantino) — sorterat efter betyg</div>
+</header>
+
+<div class="tabs">
+  <button id="tab-search" class="active" onclick="tab('search')">Sök</button>
+  <button id="tab-rec" onclick="tab('rec')">Mina favoriter → förslag</button>
+</div>
+
+<div class="panel active" id="panel-search">
+  <div class="searchbar">
+    <input id="q" placeholder="Tema, titel, skådespelare eller regissör…" autofocus>
+    <button onclick="go(1)">Sök</button>
+  </div>
+</div>
+
+<div class="panel" id="panel-rec">
+  <div class="likebox">
+    <textarea id="likes" placeholder="Skriv en film/serie du gillar per rad, t.ex.&#10;The Thing&#10;Alien&#10;Cube&#10;Cast Away"></textarea>
+    <div class="row"><button onclick="recommend(1)">Föreslå filmer åt mig</button></div>
+  </div>
+  <div class="recinfo" id="recinfo"></div>
+</div>
+
+<div class="opts">
+  <label><input type="checkbox" id="incltv"> Inkludera TV-serier</label>
+  <span class="keylink" onclick="openKeys()">API-nyckel</span>
+</div>
+
+<div class="yearbox">
+  <div class="yearlabel"><span>Årtal: <b id="ylo"></b> – <b id="yhi"></b></span></div>
+  <div class="slider">
+    <div class="track"></div><div class="range" id="yrange"></div>
+    <input type="range" id="ymin"><input type="range" id="ymax">
+  </div>
+</div>
+
+<div class="catlabel">Kategorier — avmarkera en för att dölja den (allt ikryssat = inga begränsningar)</div>
+<div class="cats" id="cats"></div>
+
+<div class="status" id="status"></div>
+<div class="grid" id="grid"></div>
+<div class="pager" id="pager"></div>
+<div class="tip" id="tip"></div>
+
+<div class="modal" id="keymodal">
+  <div class="box">
+    <h3>API-nyckel</h3>
+    <p>Appen hämtar filmdata direkt från TMDb. Klistra in din gratis nyckel
+       (<a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org</a> → Settings → API → "API Key (v3 auth)").
+       Den sparas <b>bara i den här webbläsaren</b>, aldrig på nätet.</p>
+    <label>TMDb API-nyckel (obligatorisk)</label>
+    <input id="kx-tmdb" placeholder="t.ex. 8f3c…">
+    <label>OMDb-nyckel (valfri – för äkta IMDb-betyg, <a href="https://www.omdbapi.com/apikey.aspx" target="_blank">omdbapi.com</a>)</label>
+    <input id="kx-omdb" placeholder="valfritt">
+    <button class="save" onclick="saveKeys()">Spara</button>
+  </div>
+</div>
+
+<script>
+/* ====================== Konfiguration / nycklar ====================== */
+// Inbäddade nycklar – följer med filen till alla enheter (ingen inmatning behövs).
+const DEFAULT_TMDB_KEY="b019a3aee56b1a9cbe0600f130d8877e";
+const DEFAULT_OMDB_KEY="";   // valfri (för äkta IMDb-betyg)
+
+const TMDB="https://api.themoviedb.org/3", IMG="https://image.tmdb.org/t/p/w342";
+const $=s=>document.querySelector(s);
+function getTmdbKey(){ return localStorage.getItem("film_tmdb_key")||DEFAULT_TMDB_KEY; }
+function getOmdbKey(){ return localStorage.getItem("film_omdb_key")||DEFAULT_OMDB_KEY; }
+function openKeys(){ $("#kx-tmdb").value=getTmdbKey(); $("#kx-omdb").value=getOmdbKey(); $("#keymodal").classList.add("show"); }
+function saveKeys(){
+  const t=$("#kx-tmdb").value.trim();
+  if(!t){ alert("TMDb-nyckel krävs."); return; }
+  localStorage.setItem("film_tmdb_key",t);
+  localStorage.setItem("film_omdb_key",$("#kx-omdb").value.trim());
+  $("#keymodal").classList.remove("show");
+  loadGenres();
+}
+function tmdb(path, params={}){
+  const u=new URL(TMDB+path);
+  u.searchParams.set("api_key", getTmdbKey());
+  for(const [k,v] of Object.entries(params)){ if(v!==undefined&&v!==null&&v!=="") u.searchParams.set(k,v); }
+  return fetch(u.toString(),{cache:"no-store"}).then(r=>{ if(!r.ok) throw new Error("TMDb "+r.status); return r.json(); });
+}
+async function omdbImdb(imdb_id){
+  const key=getOmdbKey(); if(!key||!imdb_id) return null;
+  try{ const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
+       const v=d.imdbRating; if(v&&v!=="N/A") return parseFloat(v); }catch(e){}
+  return null;
+}
+
+/* ====================== Ordlistor (svensk→engelsk, alias) ====================== */
+const SV2EN={
+ "fängelse":"prison","fängelsefilm":"prison","fängelsefilmer":"prison",
+ "rymd":"space","rymdfilm":"space","rymdresa":"space travel","rymdresor":"space travel","rymdskepp":"spacecraft",
+ "krig":"war","krigsfilm":"war","skräck":"horror","skräckfilm":"horror","zombie":"zombie",
+ "robot":"robot","vampyr":"vampire","varulv":"werewolf","rån":"heist","kupp":"heist",
+ "spion":"spy","spionfilm":"spy","tidsresa":"time travel","apokalyps":"apocalypse",
+ "boxning":"boxing","maffia":"mafia","ubåt":"submarine","domstol":"courtroom","advokat":"lawyer",
+ "sjukhus":"hospital","jul":"christmas","julfilm":"christmas","västern":"western",
+ "barbar":"sword and sorcery","barbarfilm":"sword and sorcery","svärd":"sword and sorcery",
+ "drake":"dragon","riddare":"knight","ninja":"ninja","kampsport":"martial arts","karate":"martial arts",
+ "instängd":"single location","instängda":"single location","kammarspel":"single location",
+ "begränsad plats":"single location","en plats":"single location","single location":"single location",
+ "klaustrofobi":"claustrophobia","isolerad":"isolation","belägring":"siege","fångad":"trapped","fast":"trapped"
+};
+const PERSON_ALIAS={
+ "jcvd":"Jean-Claude Van Damme","van damme":"Jean-Claude Van Damme","the rock":"Dwayne Johnson",
+ "arnold":"Arnold Schwarzenegger","schwarzenegger":"Arnold Schwarzenegger","stallone":"Sylvester Stallone",
+ "bruce lee":"Bruce Lee","chuck norris":"Chuck Norris","jackie chan":"Jackie Chan","jet li":"Jet Li",
+ "tarantino":"Quentin Tarantino","nolan":"Christopher Nolan","spielberg":"Steven Spielberg","scorsese":"Martin Scorsese"
+};
+const STOPWORDS=new Set(["och","eller","med","i","på","av","the","and","or","film","filmer"]);
+
+/* ====================== Kategorier ====================== */
+const GENRE_OPTIONS=[
+ ["action","Action",28],["adventure","Äventyr",12],["animation","Tecknat",16],["anime","Anime",null],
+ ["comedy","Komedi",35],["crime","Krim",80],["documentary","Dokumentär",99],["drama","Drama",18],
+ ["family","Familj",10751],["fantasy","Fantasy",14],["history","Historia",36],["horror","Skräck",27],
+ ["music","Musik",10402],["mystery","Mysterium",9648],["romance","Romantik",10749],["scifi","Sci-Fi",878],
+ ["thriller","Thriller",53],["war","Krig",10752],["western","Western",37]
+];
+const GENRE_BY_KEY={}; GENRE_OPTIONS.forEach(([k,l,g])=>GENRE_BY_KEY[k]=[l,g]);
+const ALL_GENRE_KEYS=GENRE_OPTIONS.map(o=>o[0]);
+function genreSetup(keys){
+  const checked=(keys||[]).filter(k=>GENRE_BY_KEY[k]);
+  if(!checked.length||checked.length>=ALL_GENRE_KEYS.length) return {blacklist:[],without:""};
+  const blacklist=ALL_GENRE_KEYS.filter(k=>!checked.includes(k));
+  const wo=[];
+  for(const k of blacklist){ if(k==="anime")continue; const g=GENRE_BY_KEY[k][1]; if(g)wo.push(g); }
+  return {blacklist, without:[...new Set(wo)].join(",")};
+}
+function genreKeep(m,blacklist){
+  if(!blacklist.length) return true;
+  const gids=new Set(m.genre_ids||[]);
+  for(const k of blacklist){
+    if(k==="anime"){ if(gids.has(16)&&m.original_language==="ja") return false; }
+    else { const g=GENRE_BY_KEY[k][1]; if(g&&gids.has(g)) return false; }
+  }
+  return true;
+}
+
+/* ====================== Genre-namn ====================== */
+let GMAP={};
+async function loadGenres(){
+  GMAP={};
+  for(const kind of ["movie","tv"]){
+    try{ const d=await tmdb(`/genre/${kind}/list`,{language:"en-US"});
+         (d.genres||[]).forEach(g=>{ if(!(g.id in GMAP)) GMAP[g.id]=g.name; }); }catch(e){}
+  }
+}
+
+/* ====================== Sök-strategi ====================== */
+function tag(list,mt){ list.forEach(x=>x._mt=mt); return list; }
+async function firstKeywordId(term){
+  try{ const r=(await tmdb("/search/keyword",{query:term})).results||[]; return r.length?r[0].id:null; }catch(e){ return null; }
+}
+async function keywordIds(term){
+  const cands=[]; const t=term.trim().toLowerCase();
+  if(SV2EN[t]) cands.push(SV2EN[t]);
+  cands.push(term);
+  for(const w of term.split(/\s+/)) if(SV2EN[w.toLowerCase()]) cands.push(SV2EN[w.toLowerCase()]);
+  const seen=new Set(), ids=[];
+  for(const c of cands){
+    let r=[]; try{ r=(await tmdb("/search/keyword",{query:c})).results||[]; }catch(e){}
+    for(const k of r.slice(0,3)) if(!seen.has(k.id)){ seen.add(k.id); ids.push(k.id); }
+    if(ids.length) break;
+  }
+  return ids;
+}
+async function personMatch(term){
+  const t=term.trim().toLowerCase();
+  const name=PERSON_ALIAS[t]||term;
+  let res=[]; try{ res=(await tmdb("/search/person",{query:name,include_adult:"false"})).results||[]; }catch(e){ return null; }
+  if(!res.length) return null;
+  const top=res[0], pop=top.popularity||0, known=top.known_for||[], nm=(top.name||"").toLowerCase();
+  const aliasHit=Object.prototype.hasOwnProperty.call(PERSON_ALIAS,t);
+  const qt=t.split(/\s+/).filter(w=>w.length>1);
+  const nt=new Set(nm.split(/\s+/));
+  const nameMatch=qt.length>0 && qt.every(w=>nt.has(w));
+  if((aliasHit||(nameMatch&&pop>=1.0))&&known.length) return top.id;
+  return null;
+}
+async function resolveQuery(term){
+  const pid=await personMatch(term);
+  if(pid) return {kind:"person",person:pid};
+  const words=term.toLowerCase().split(/\s+/).filter(w=>!STOPWORDS.has(w)&&w.length>1);
+  if(words.length>=2){
+    const andIds=[];
+    for(const w of words){ const kid=await firstKeywordId(SV2EN[w]||w); if(kid) andIds.push(kid); }
+    if(andIds.length>=2) return {kind:"keywords_and",ids:andIds};
+  }
+  const ids=await keywordIds(term);
+  if(ids.length) return {kind:"keywords_or",ids};
+  return {kind:"title"};
+}
+
+/* ====================== Packning + berikning ====================== */
+function pack(m){
+  const mt=m._mt||"movie";
+  const title=m.title||m.name||m.original_title||m.original_name||"—";
+  const date=m.release_date||m.first_air_date||"";
+  return {id:m.id,media:mt,title,year:date.slice(0,4),overview:m.overview||"",
+          poster:m.poster_path?IMG+m.poster_path:null,
+          tmdb_rating:Math.round((m.vote_average||0)*10)/10,votes:m.vote_count||0,
+          original_language:m.original_language,
+          genres:(m.genre_ids||[]).map(g=>GMAP[g]).filter(Boolean)};
+}
+async function enrichResults(raw,sort){
+  const out=raw.map(pack);
+  await Promise.all(out.map(async it=>{
+    try{ const ext=await tmdb(`/${it.media}/${it.id}/external_ids`); it.imdb_id=ext.imdb_id; }catch(e){ it.imdb_id=null; }
+    it.imdb_rating=await omdbImdb(it.imdb_id);
+  }));
+  if(sort) out.sort((a,b)=>((b.imdb_rating||b.tmdb_rating)-(a.imdb_rating||a.tmdb_rating)));
+  return out;
+}
+
+/* ====================== Sökning ====================== */
+async function searchMovies(query,page,ymin,ymax,includeTv,genres){
+  const plan=await resolveQuery(query);
+  const {blacklist,without}=genreSetup(genres);
+  const discMovie=ex=>tmdb("/discover/movie",Object.assign(
+    {"vote_count.gte":100,"primary_release_date.gte":ymin+"-01-01","primary_release_date.lte":ymax+"-12-31",
+     sort_by:"vote_average.desc",include_adult:"false",language:"en-US",page,without_genres:without},ex||{}));
+  const discTv=ex=>tmdb("/discover/tv",Object.assign(
+    {"vote_count.gte":40,"first_air_date.gte":ymin+"-01-01","first_air_date.lte":ymax+"-12-31",
+     sort_by:"vote_average.desc",language:"en-US",page,without_genres:without},ex||{}));
+
+  let raw=[], total_pages=1, mode;
+  if(plan.kind==="person"){
+    mode="person";
+    if(includeTv){
+      let cc={}; try{ cc=await tmdb(`/person/${plan.person}/combined_credits`,{language:"en-US"}); }catch(e){}
+      const seen=new Set();
+      for(const c of (cc.cast||[]).concat(cc.crew||[])){
+        const m=c.media_type; if(m!=="movie"&&m!=="tv")continue; if((c.vote_count||0)<20)continue;
+        const k=m+":"+c.id; if(seen.has(k))continue; seen.add(k); c._mt=m; raw.push(c);
+      }
+    }else{
+      const d=await discMovie({with_people:plan.person,"vote_count.gte":80});
+      raw=tag(d.results||[],"movie"); total_pages=d.total_pages||1;
+    }
+  }else if(plan.kind==="keywords_and"||plan.kind==="keywords_or"){
+    mode="tema"; const op=plan.kind==="keywords_and"?",":"|"; const kw=plan.ids.join(op);
+    const dm=await discMovie({with_keywords:kw}); raw=raw.concat(tag(dm.results||[],"movie")); total_pages=dm.total_pages||1;
+    if(includeTv){ const dt=await discTv({with_keywords:kw}); raw=raw.concat(tag(dt.results||[],"tv")); total_pages=Math.max(total_pages,dt.total_pages||1); }
+  }else{
+    mode="titel";
+    const sm=await tmdb("/search/movie",{query,include_adult:"false",language:"en-US",page});
+    raw=raw.concat(tag(sm.results||[],"movie")); total_pages=sm.total_pages||1;
+    if(includeTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
+      raw=raw.concat(tag(st.results||[],"tv")); total_pages=Math.max(total_pages,st.total_pages||1); }
+  }
+
+  raw=raw.filter(m=>{
+    const date=m.release_date||m.first_air_date||""; const y=date.slice(0,4);
+    if(/^\d+$/.test(y)&&!(ymin<=+y&&+y<=ymax)) return false;
+    return genreKeep(m,blacklist);
+  });
+  raw.sort((a,b)=>((b.vote_average||0)-(a.vote_average||0)));
+  raw=raw.slice(0,60);
+  const results=await enrichResults(raw,true);
+  return {mode,page,total_pages:Math.min(total_pages,500),results};
+}
+
+/* ====================== Rekommendationer ====================== */
+const recCache={};
+async function recommendPool(titles,ymin,ymax,includeTv,genres){
+  const {blacklist}=genreSetup(genres);
+  const liked=new Set(), recognized=[], unknown=[];
+  await Promise.all(titles.map(async t=>{
+    let res=[];
+    try{
+      if(includeTv){ res=((await tmdb("/search/multi",{query:t,include_adult:"false",language:"en-US"})).results||[]).filter(r=>r.media_type==="movie"||r.media_type==="tv"); }
+      else{ res=((await tmdb("/search/movie",{query:t,include_adult:"false",language:"en-US"})).results||[]); res.forEach(r=>r.media_type="movie"); }
+    }catch(e){}
+    const hit=res[0];
+    if(hit){ const mt=hit.media_type||"movie"; liked.add(mt+":"+hit.id); recognized.push({q:t,title:hit.title||hit.name,id:hit.id,media:mt}); }
+    else unknown.push(t);
+  }));
+  if(!liked.size) return {ranked:[],score:{},recognized:[],unknown};
+  const all=[];
+  await Promise.all([...liked].map(async item=>{
+    const [mt,mid]=item.split(":");
+    for(const kind of ["recommendations","similar"]){
+      for(const pg of [1,2]){
+        try{ const d=await tmdb(`/${mt}/${mid}/${kind}`,{language:"en-US",page:pg});
+             (d.results||[]).forEach(r=>{ r._mt=mt; all.push(r); });
+             if(pg>=(d.total_pages||1)) break; }catch(e){ break; }
+      }
+    }
+  }));
+  const score={}, rawByKey={};
+  for(const r of all){
+    const rid=r.id, key=(r._mt||"movie")+":"+rid;
+    if(!rid||liked.has(key)) continue;
+    const date=r.release_date||r.first_air_date||""; const y=date.slice(0,4);
+    if(/^\d+$/.test(y)&&!(ymin<=+y&&+y<=ymax)) continue;
+    if(!genreKeep(r,blacklist)) continue;
+    score[key]=(score[key]||0)+1; rawByKey[key]=r;
+  }
+  const ranked=Object.entries(rawByKey).sort((a,b)=>{
+    const sa=score[a[0]]||0, sb=score[b[0]]||0;
+    if(sb!==sa) return sb-sa; return (b[1].vote_average||0)-(a[1].vote_average||0);
+  }).slice(0,240).map(e=>e[1]);
+  return {ranked,score,recognized,unknown};
+}
+async function recommendMovies(titles,ymin,ymax,includeTv,page,genres){
+  const ck=JSON.stringify([titles,ymin,ymax,includeTv,(genres||[]).slice().sort()]);
+  let pool=recCache[ck];
+  if(!pool){ pool=await recommendPool(titles,ymin,ymax,includeTv,genres); recCache[ck]=pool; }
+  const ranked=pool.ranked, score=pool.score, total=ranked.length, per=20;
+  const total_pages=Math.max(1,Math.ceil(total/per));
+  page=Math.min(Math.max(1,page),total_pages);
+  const chunk=ranked.slice((page-1)*per,page*per);
+  const out=await enrichResults(chunk,false);
+  out.forEach(it=>it.overlap=score[it.media+":"+it.id]||0);
+  return {mode:"rekommendation",page,total_pages,results:out,recognized:pool.recognized,unknown:pool.unknown};
+}
+
+/* ====================== Trailer + detaljer ====================== */
+async function trailer(media,id){
+  const mt=media==="tv"?"tv":"movie";
+  try{
+    for(const lang of ["sv-SE","en-US"]){
+      const vids=(await tmdb(`/${mt}/${id}/videos`,{language:lang})).results||[];
+      const yt=vids.filter(v=>v.site==="YouTube");
+      const tr=yt.filter(v=>v.type==="Trailer").concat(yt);
+      if(tr.length){ window.open("https://www.youtube.com/watch?v="+tr[0].key,"_blank"); return; }
+    }
+  }catch(e){}
+  try{ const info=await tmdb(`/${mt}/${id}`); const ti=info.title||info.name||"";
+       const yr=(info.release_date||info.first_air_date||"").slice(0,4);
+       window.open("https://www.youtube.com/results?search_query="+encodeURIComponent(ti+" "+yr+" trailer"),"_blank"); }
+  catch(e){ window.open("https://www.youtube.com/results?search_query=trailer","_blank"); }
+}
+const detCache={};
+async function apiDetails(media,id){
+  const mt=media==="tv"?"tv":"movie", k=mt+":"+id;
+  if(detCache[k]) return detCache[k];
+  let data; try{ data=await tmdb(`/${mt}/${id}`,{language:"sv-SE",append_to_response:"credits"}); }catch(e){ return {error:true}; }
+  let overview=data.overview||"";
+  if(!overview){ try{ overview=(await tmdb(`/${mt}/${id}`,{language:"en-US"})).overview||""; }catch(e){} }
+  const credits=data.credits||{}, cast=(credits.cast||[]).slice(0,6).map(c=>c.name).filter(Boolean);
+  let people,label;
+  if(mt==="movie"){ people=(credits.crew||[]).filter(c=>c.job==="Director").map(c=>c.name); label="Regi"; }
+  else{ people=(data.created_by||[]).map(c=>c.name).filter(Boolean); label="Skapare"; }
+  const res={overview,director:people.slice(0,2).join(", "),director_label:label,cast};
+  detCache[k]=res; return res;
+}
+
+/* ====================== UI ====================== */
+let cur={q:"",page:1,tot:1,mode:"search",recTitles:[]};
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+const LS={get:(k,d)=>{const v=localStorage.getItem(k);return v===null?d:v;},set:(k,v)=>localStorage.setItem(k,v)};
+
+// Årtals-slider
+const MIN_YEAR=1950, CUR_YEAR=new Date().getFullYear();
+const YMIN=$("#ymin"),YMAX=$("#ymax");
+[YMIN,YMAX].forEach(el=>{el.min=MIN_YEAR;el.max=CUR_YEAR;});
+function clampY(v){return Math.min(CUR_YEAR,Math.max(MIN_YEAR,+v||MIN_YEAR));}
+YMIN.value=clampY(LS.get("film_ymin",MIN_YEAR));
+YMAX.value=clampY(LS.get("film_ymax",CUR_YEAR));
+function syncSlider(){
+  let a=+YMIN.value,b=+YMAX.value;
+  if(a>b){ if(document.activeElement===YMIN){b=a;YMAX.value=b;} else {a=b;YMIN.value=a;} }
+  $("#ylo").textContent=a; $("#yhi").textContent=b;
+  const r=$("#yrange"),span=CUR_YEAR-MIN_YEAR;
+  r.style.left=((a-MIN_YEAR)/span*100)+"%"; r.style.right=(100-(b-MIN_YEAR)/span*100)+"%";
+}
+[YMIN,YMAX].forEach(el=>{
+  el.addEventListener("input",syncSlider);
+  el.addEventListener("change",()=>{ LS.set("film_ymin",YMIN.value); LS.set("film_ymax",YMAX.value); rerun(); });
+});
+syncSlider();
+
+// Flikar
+function tab(name,restore){
+  document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".tabs button").forEach(b=>b.classList.remove("active"));
+  $("#panel-"+name).classList.add("active");
+  $("#tab-"+(name==="search"?"search":"rec")).classList.add("active");
+  LS.set("film_tab",name);
+  if(!restore){ $("#grid").innerHTML=""; $("#status").textContent=""; $("#pager").innerHTML=""; $("#recinfo").innerHTML=""; }
+}
+$("#q").value=LS.get("film_q","");
+$("#q").addEventListener("input",()=>LS.set("film_q",$("#q").value));
+
+// TV-checkbox
+const TV=$("#incltv");
+TV.checked=LS.get("film_incltv","0")==="1";
+TV.addEventListener("change",()=>{ LS.set("film_incltv",TV.checked?"1":"0"); rerun(); });
+
+// Kategori-kryssrutor (byggs i JS)
+$("#cats").innerHTML=GENRE_OPTIONS.map(([k,l])=>
+  `<label class="cat"><input type="checkbox" class="catbox" value="${k}"> ${l}</label>`).join("");
+const CATS=[...document.querySelectorAll(".catbox")];
+function selectedCats(){ return CATS.filter(c=>c.checked).map(c=>c.value); }
+function paintCats(){ CATS.forEach(c=>c.closest(".cat").classList.toggle("on",c.checked)); }
+(function initCats(){
+  const stored=localStorage.getItem("film_cats");
+  if(stored===null){ CATS.forEach(c=>{ c.checked=c.value!=="documentary"; }); }
+  else{ const saved=stored.split(",").filter(Boolean); CATS.forEach(c=>{ c.checked=saved.includes(c.value); }); }
+  paintCats();
+  CATS.forEach(c=>c.addEventListener("change",()=>{
+    paintCats(); LS.set("film_cats",selectedCats().join(",")); rerun();
+  }));
+})();
+
+// Favoritlista (per enhet i localStorage)
+const LIKES=$("#likes");
+LIKES.value=LS.get("film_likes","");
+LIKES.addEventListener("input",()=>LS.set("film_likes",LIKES.value));
+
+function rerun(){ if(cur.mode==="rec"&&(cur.recTitles||[]).length) recommend(1); else if(cur.q) go(1); }
+
+async function go(page){
+  if(!getTmdbKey()){ openKeys(); return; }
+  const q=$("#q").value.trim(); if(!q) return;
+  cur.q=q; cur.page=page; cur.mode="search";
+  $("#status").textContent="Söker…"; $("#pager").innerHTML="";
+  try{ const d=await searchMovies(q,page,+YMIN.value,+YMAX.value,TV.checked,selectedCats()); render(d); }
+  catch(e){ $("#status").textContent="Fel: "+e.message; $("#grid").innerHTML=""; }
+}
+async function recommend(page){
+  if(!getTmdbKey()){ openKeys(); return; }
+  page=page||1;
+  if(page===1){ cur.recTitles=LIKES.value.split("\n").map(s=>s.trim()).filter(Boolean); }
+  const titles=cur.recTitles||[];
+  if(!titles.length){ $("#status").textContent="Skriv minst en film du gillar."; return; }
+  cur.mode="rec"; cur.page=page;
+  $("#status").textContent="Letar förslag…"; $("#grid").innerHTML=""; $("#pager").innerHTML="";
+  try{
+    const d=await recommendMovies(titles,+YMIN.value,+YMAX.value,TV.checked,page,selectedCats());
+    const rec=(d.recognized||[]).map(x=>esc(x.title||x.q)).join(", ");
+    let info=rec?`Baserat på: ${rec}.`:"";
+    if(d.unknown&&d.unknown.length) info+=` <span class="unknown">Hittade inte: ${d.unknown.map(esc).join(", ")}.</span>`;
+    $("#recinfo").innerHTML=info;
+    render(d);
+  }catch(e){ $("#status").textContent="Fel: "+e.message; }
+}
+function loadPage(p){ (cur.mode==="rec"?recommend:go)(p); }
+
+function render(d){
+  cur.tot=d.total_pages||1;
+  const n=d.results.length;
+  const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",rekommendation:"förslag åt dig"}[d.mode]||d.mode;
+  $("#status").textContent=n?`${n} titlar (${modeTxt}) — sida ${d.page} av ${d.total_pages}`:"Inga träffar.";
+  $("#grid").innerHTML=d.results.map(m=>{
+    const rating=m.imdb_rating!=null?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
+    const pd=`data-id="${m.id}" data-media="${m.media||'movie'}" data-title="${esc(m.title)}" data-year="${m.year||''}"`;
+    const poster=m.poster
+      ? `<div class="poster" ${pd} style="background-image:url('${m.poster}')"><div class="badge">${rating}</div></div>`
+      : `<div class="poster" ${pd}><div class="badge">${rating}</div><div class="noposter">Ingen poster</div></div>`;
+    const mtag=m.media==="tv"?`<span class="tag tv">TV-serie</span>`:"";
+    const genres=(m.genres||[]).slice(0,3).map(g=>`<span class="tag">${esc(g)}</span>`).join("");
+    const imdb=m.imdb_id?`<a class="imdb" target="_blank" href="https://www.imdb.com/title/${m.imdb_id}/">IMDb</a>`:"";
+    const why=m.overlap?`<div class="why">Matchar ${m.overlap} av dina favoriter</div>`:"";
+    return `<div class="card">${poster}<div class="body">
+      <div class="title">${esc(m.title)} <span>${m.year||""}</span></div>
+      ${why}<div class="genres">${mtag}${genres}</div>
+      <div class="ov">${esc(m.overview)||"<i style='color:#566'>Ingen beskrivning.</i>"}</div>
+      <div class="links">
+        <button class="trailer" onclick="trailer('${m.media||'movie'}',${m.id})">Trailer</button>${imdb}
+      </div></div></div>`;
+  }).join("");
+  pager(d); attachTips();
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function pager(d){
+  const p=d.page,t=d.total_pages;
+  if(t<=1){ $("#pager").innerHTML=""; return; }
+  $("#pager").innerHTML=
+    `<button class="ghost" ${p<=1?"disabled":""} onclick="loadPage(${p-1})">‹ Föregående</button>
+     <span>Sida ${p} / ${t}</span>
+     <button class="ghost" ${p>=t?"disabled":""} onclick="loadPage(${p+1})">Nästa ›</button>`;
+}
+
+// Hover-popup
+const TIP=$("#tip"); let tipPoster=null;
+function placeTip(poster){
+  const r=poster.getBoundingClientRect(),w=TIP.offsetWidth,h=TIP.offsetHeight,gap=10;
+  let left=r.right+gap; if(left+w>window.innerWidth-8) left=r.left-gap-w;
+  if(left<8) left=Math.max(8,(window.innerWidth-w)/2);
+  let top=r.top+r.height/2-h/2; top=Math.max(8,Math.min(top,window.innerHeight-h-8));
+  TIP.style.left=left+"px"; TIP.style.top=top+"px";
+}
+function tipBody(j){
+  if(!j||j.error) return '<div class="loading">Ingen info.</div>';
+  const ov=j.overview?`<div class="ovfull">${esc(j.overview)}</div>`:'<div class="loading">Ingen beskrivning.</div>';
+  let crew="";
+  if(j.director) crew+=`<div><span class="lbl">${esc(j.director_label||"Regi")}:</span> <b>${esc(j.director)}</b></div>`;
+  if(j.cast&&j.cast.length) crew+=`<div><span class="lbl">I rollerna:</span> ${esc(j.cast.join(", "))}</div>`;
+  return ov+(crew?`<div class="crew">${crew}</div>`:"");
+}
+function showTip(poster){
+  const d=poster.dataset;
+  const head=`<h4>${d.title} <span style="color:var(--mut);font-weight:500">${d.year||""}</span></h4>`;
+  const k=d.media+":"+d.id, cached=detCache[k];
+  TIP.innerHTML=head+(cached?tipBody(cached):'<div class="loading">Laddar…</div>');
+  TIP.classList.add("show"); placeTip(poster);
+  if(!cached){ apiDetails(d.media,d.id).then(j=>{ if(tipPoster===poster){ TIP.innerHTML=head+tipBody(j); placeTip(poster); } }); }
+}
+function attachTips(){
+  const posters=[...$("#grid").querySelectorAll(".poster")];
+  posters.forEach(poster=>{
+    poster.addEventListener("mouseenter",()=>{ tipPoster=poster; showTip(poster); });
+    poster.addEventListener("mouseleave",()=>{ tipPoster=null; TIP.classList.remove("show"); });
+  });
+  let i=0; const next=()=>{ if(i>=posters.length)return; const d=posters[i++].dataset; apiDetails(d.media,d.id).finally(next); };
+  for(let k=0;k<4;k++) next();
+}
+
+$("#q").addEventListener("keydown",e=>{ if(e.key==="Enter") go(1); });
+tab(LS.get("film_tab","search")==="rec"?"rec":"search",true);
+
+// Start
+(async function start(){
+  if(!getTmdbKey()){ openKeys(); }
+  else{ await loadGenres(); }
+})();
+</script>
+</body>
+</html>

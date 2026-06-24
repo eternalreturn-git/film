@@ -1,0 +1,9 @@
+# API-nyckel – får ALDRIG checkas in
+film_config.json
+
+# Personlig/lokal data
+film_favorites.json
+
+# Python
+__pycache__/
+*.pyc
