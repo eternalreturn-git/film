@@ -76,6 +76,20 @@
   .tip .loading{color:var(--mut)}
   .pager{display:flex;justify-content:center;align-items:center;gap:12px;margin:6px auto 40px}
   .pager span{color:var(--mut)}
+  .ratebox{border-top:1px solid #232a34;margin-top:6px;padding-top:9px;display:flex;flex-direction:column;gap:7px;align-items:center}
+  .ratelabel{font-size:12px;color:var(--mut);font-weight:600}
+  .faces{display:flex;gap:12px}
+  .face{width:46px;height:46px;border-radius:50%;background:#10141a;border:1px solid #262d38;display:flex;align-items:center;justify-content:center;padding:0;margin:0;color:var(--mut);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .13s ease,background .15s,color .15s,border-color .15s}
+  .face svg{width:26px;height:26px;display:block}
+  .face:hover{transform:translateY(-2px)}
+  .face:active{transform:scale(.86)}
+  .face.sad:hover,.face.sad.act{color:#ff8080;border-color:#7a2c2c;background:#2a1416}
+  .face.neutral:hover,.face.neutral.act{color:#e6cf6a;border-color:#5a5118;background:#241f10}
+  .face.happy:hover,.face.happy.act{color:#6fd08a;border-color:#2c6b3e;background:#10241a}
+  .face.act{animation:pop .32s ease}
+  @keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1.12)}}
+  .card{transition:opacity .32s ease,transform .32s ease}
+  .card.removing{opacity:0;transform:scale(.88) translateY(10px)}
   .modal{position:fixed;inset:0;background:rgba(4,8,14,.82);display:none;align-items:center;justify-content:center;z-index:100;padding:18px}
   .modal.show{display:flex}
   .modal .box{background:var(--card);border:1px solid #2c3744;border-radius:16px;padding:24px;max-width:460px;width:100%}
@@ -358,6 +372,12 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
   return {mode,page,total_pages:Math.min(total_pages,500),results};
 }
 
+/* ====================== Betyg (kom ihåg sedda) ====================== */
+function loadRated(){ try{ return JSON.parse(localStorage.getItem("film_rated")||"{}"); }catch(e){ return {}; } }
+let RATED=loadRated();
+function isRated(media,id){ return (media+":"+id) in RATED; }
+function saveRated(){ localStorage.setItem("film_rated", JSON.stringify(RATED)); }
+
 /* ====================== Rekommendationer ====================== */
 const recCache={};
 async function recommendPool(titles,ymin,ymax,media,genres){
@@ -387,7 +407,7 @@ async function recommendPool(titles,ymin,ymax,media,genres){
   const score={}, rawByKey={};
   for(const r of all){
     const rid=r.id, key=(r._mt||"movie")+":"+rid;
-    if(!rid||liked.has(key)) continue;
+    if(!rid||liked.has(key)||(key in RATED)) continue;   // hoppa över redan betygsatta
     const date=r.release_date||r.first_air_date||""; const y=date.slice(0,4);
     if(/^\d+$/.test(y)&&!(ymin<=+y&&+y<=ymax)) continue;
     if(!genreKeep(r,blacklist)) continue;
@@ -541,8 +561,51 @@ async function recommend(page){
 }
 function loadPage(p){ (cur.mode==="rec"?recommend:go)(p); }
 
+/* Betygsklick (endast på rekommendationskort) */
+function pruneFromPools(media,id){
+  const key=media+":"+id;
+  for(const k in recCache){ const p=recCache[k]; if(p&&p.ranked) p.ranked=p.ranked.filter(r=>((r._mt||"movie")+":"+r.id)!==key); }
+}
+function addFavorite(title){
+  const list=(LIKES.value||"").split("\n").map(s=>s.trim()).filter(Boolean);  // textarutan = sanning
+  if(!list.some(x=>x.toLowerCase()===title.toLowerCase())) list.push(title);
+  const val=list.join("\n"); LIKES.value=val; LS.set("film_likes",val);
+  for(const k in recCache) delete recCache[k];   // bygg om poolen med nya favoriten
+}
+function animateOut(card,cb){ card.classList.add("removing"); setTimeout(cb,330); }
+function rate(btn){
+  const card=btn.closest(".card"); if(!card) return;
+  const ds=card.querySelector(".poster").dataset;
+  const media=ds.media||"movie", id=ds.id, title=ds.title, r=btn.dataset.r;
+  // visuell bekräftelse
+  card.querySelectorAll(".face").forEach(f=>f.classList.remove("act"));
+  btn.classList.add("act");
+  card.querySelectorAll(".face").forEach(f=>f.style.pointerEvents="none");
+  // kom ihåg + ta bort ur poolerna
+  RATED[media+":"+id]=r; saveRated();
+  pruneFromPools(media,id);
+  if(r==="happy"){
+    addFavorite(title);
+    animateOut(card,()=>recommend(1));   // ladda om förslag med nya favoriten
+  }else{
+    animateOut(card,()=>card.remove());
+  }
+}
+$("#grid").addEventListener("click",e=>{
+  const btn=e.target.closest(".face"); if(btn) rate(btn);
+});
+
+const FACE_SAD='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 15.5c1-1.4 2.4-2.1 4-2.1s3 .7 4 2.1"/><circle cx="9" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.1" fill="currentColor" stroke="none"/></svg>';
+const FACE_NEUTRAL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 15h7"/><circle cx="9" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.1" fill="currentColor" stroke="none"/></svg>';
+const FACE_HAPPY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14c1 1.4 2.4 2.1 4 2.1s3-.7 4-2.1"/><circle cx="9" cy="10" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.1" fill="currentColor" stroke="none"/></svg>';
+const RATEBOX=`<div class="ratebox"><span class="ratelabel">Redan sett?</span><div class="faces">
+  <button class="face sad" data-r="sad" aria-label="Gillade inte" title="Gillade inte">${FACE_SAD}</button>
+  <button class="face neutral" data-r="neutral" aria-label="Sådär" title="Sådär">${FACE_NEUTRAL}</button>
+  <button class="face happy" data-r="happy" aria-label="Gillade – lägg till favorit" title="Gillade">${FACE_HAPPY}</button>
+</div></div>`;
 function render(d){
   cur.tot=d.total_pages||1;
+  const isRec=d.mode==="rekommendation";
   const n=d.results.length;
   const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",rekommendation:"förslag åt dig"}[d.mode]||d.mode;
   $("#status").textContent=n?`${n} titlar (${modeTxt}) — sida ${d.page} av ${d.total_pages}`:"Inga träffar.";
@@ -562,7 +625,7 @@ function render(d){
       <div class="ov">${esc(m.overview)||"<i style='color:#566'>Ingen beskrivning.</i>"}</div>
       <div class="links">
         <button class="trailer" onclick="trailer('${m.media||'movie'}',${m.id})">Trailer</button>${imdb}
-      </div></div></div>`;
+      </div>${isRec?RATEBOX:""}</div></div>`;
   }).join("");
   pager(d); attachTips();
   window.scrollTo({top:0,behavior:"smooth"});
