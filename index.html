@@ -398,6 +398,16 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
       raw=tag(sm.results||[],"movie"); total_pages=sm.total_pages||1; }
   }
 
+  // Fallback: tema/person gav inget → tolka det som en TITEL istället
+  // (t.ex. "the thing", "batman" råkar matcha nyckelord men är egentligen titlar)
+  if(raw.length===0 && mode!=="titel"){
+    mode="titel";
+    if(isTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
+      raw=tag(st.results||[],"tv"); total_pages=st.total_pages||1; }
+    else{ const sm=await tmdb("/search/movie",{query,include_adult:"false",language:"en-US",page});
+      raw=tag(sm.results||[],"movie"); total_pages=sm.total_pages||1; }
+  }
+
   raw=raw.filter(m=>{
     const date=m.release_date||m.first_air_date||""; const y=date.slice(0,4);
     if(/^\d+$/.test(y)&&!(ymin<=+y&&+y<=ymax)) return false;
