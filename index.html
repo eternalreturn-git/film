@@ -25,6 +25,14 @@
   .likebox textarea{width:100%;min-height:150px;padding:12px 14px;border-radius:10px;border:1px solid #2a313c;background:#11151b;color:var(--fg);font-size:14px;resize:vertical;font-family:inherit}
   .likebox .row{display:flex;gap:8px;margin-top:8px}
   .likebox .row button{margin:0}
+  .filerow{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .filerow button{margin:0;padding:8px 14px;font-size:13px;font-weight:600}
+  .filestatus{margin-top:7px;font-size:12px;color:var(--mut);min-height:16px}
+  .filestatus.ok{color:#6fd08a}
+  .newbox{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .newbox label{color:var(--mut);font-size:13px;display:flex;gap:7px;align-items:center}
+  .newbox select{padding:9px 12px;border-radius:10px;border:1px solid #2a313c;background:#11151b;color:var(--fg);font-size:14px}
+  .newbox button{margin:0;flex:1;min-width:180px}
   .recinfo{max-width:640px;margin:6px auto;padding:0 16px;color:var(--mut);font-size:12.5px}
   .recinfo .unknown{color:#e0a14b}
   .opts{display:flex;justify-content:center;gap:14px;align-items:center;margin:4px auto 2px;color:var(--mut);font-size:13px;flex-wrap:wrap}
@@ -110,6 +118,7 @@
 <div class="tabs">
   <button id="tab-search" class="active" onclick="tab('search')">Sök</button>
   <button id="tab-rec" onclick="tab('rec')">Mina favoriter → förslag</button>
+  <button id="tab-new" onclick="tab('new')">Nya filmer</button>
 </div>
 
 <div class="panel active" id="panel-search">
@@ -123,8 +132,31 @@
   <div class="likebox">
     <textarea id="likes" placeholder="Skriv en film/serie du gillar per rad, t.ex.&#10;The Thing&#10;Alien&#10;Cube&#10;Cast Away"></textarea>
     <div class="row"><button onclick="recommend(1)">Föreslå filmer åt mig</button></div>
+    <div class="filerow">
+      <button class="ghost" id="btnFile" onclick="connectFavFile()">Spara till fil…</button>
+      <button class="ghost" onclick="exportFav()">Exportera</button>
+      <button class="ghost" onclick="importFav()">Importera</button>
+    </div>
+    <div class="filestatus" id="filestatus"></div>
   </div>
   <div class="recinfo" id="recinfo"></div>
+</div>
+
+<div class="panel" id="panel-new">
+  <div class="likebox">
+    <div class="newbox">
+      <label>Släppta senaste
+        <select id="newperiod">
+          <option value="3">3 månaderna</option>
+          <option value="6" selected>6 månaderna</option>
+          <option value="12">året</option>
+          <option value="24">2 åren</option>
+        </select>
+      </label>
+      <button onclick="newReleases(1)">Visa nya i min smak</button>
+    </div>
+  </div>
+  <div class="recinfo" id="newinfo"></div>
 </div>
 
 <div class="opts">
@@ -432,6 +464,72 @@ async function recommendMovies(titles,ymin,ymax,media,page,genres){
   return {mode:"rekommendation",page,total_pages,results:out,recognized:pool.recognized,unknown:pool.unknown};
 }
 
+/* ====================== Nya släpp i din smak ====================== */
+const tasteCache={};
+function isoMonthsAgo(n){ const d=new Date(); d.setMonth(d.getMonth()-n); return d.toISOString().slice(0,10); }
+function isoToday(){ return new Date().toISOString().slice(0,10); }
+
+async function tasteProfile(titles,media){
+  const ck=JSON.stringify([titles,media]);
+  if(tasteCache[ck]) return tasteCache[ck];
+  const path=media==="tv"?"/search/tv":"/search/movie";
+  const counts={}, own=new Set();
+  await Promise.all(titles.map(async t=>{
+    try{
+      const res=((await tmdb(path,{query:t,include_adult:"false",language:"en-US"})).results||[]);
+      const hit=res[0]; if(!hit) return;
+      own.add(media+":"+hit.id);
+      (hit.genre_ids||[]).forEach(g=>counts[g]=(counts[g]||0)+1);
+    }catch(e){}
+  }));
+  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  let top=sorted.filter(e=>e[1]>=2).map(e=>+e[0]);
+  if(top.length<2) top=sorted.slice(0,3).map(e=>+e[0]);
+  const out={genres:top.slice(0,5), counts, own};
+  tasteCache[ck]=out; return out;
+}
+
+async function newReleases(page){
+  if(!getTmdbKey()) return;
+  page=page||1;
+  const titles=likesList();
+  cur.mode="new"; cur.page=page;
+  if(!titles.length){ $("#status").textContent="Lägg till några favoriter först (fliken bredvid)."; return; }
+  $("#status").textContent="Letar nya släpp…"; $("#grid").innerHTML=""; $("#pager").innerHTML="";
+  try{
+    const media=mediaMode, isTv=media==="tv";
+    const months=+($("#newperiod").value||6);
+    const taste=await tasteProfile(titles,media);
+    if(!taste.genres.length){ $("#status").textContent="Kunde inte läsa av din smak – lägg till fler favoriter."; return; }
+    const {blacklist,without}=genreSetup(selectedCats());
+    const from=isoMonthsAgo(months), to=isoToday();
+    const p={sort_by:"popularity.desc",language:"en-US",page,without_genres:without,
+             with_genres:taste.genres.join("|")};
+    if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=5; }
+    else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=10; p.include_adult="false"; }
+    const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
+    let raw=tag(d.results||[],media);
+    raw=raw.filter(m=>{
+      const key=media+":"+m.id;
+      if(key in RATED) return false;              // redan betygsatt
+      if(taste.own.has(key)) return false;        // egen favorit
+      return genreKeep(m,blacklist);
+    });
+    // ranka efter hur väl den träffar din smak
+    const w=taste.counts;
+    raw.forEach(m=>{ m._fit=(m.genre_ids||[]).reduce((s,g)=>s+(taste.genres.includes(g)?(w[g]||1):0),0); });
+    raw.sort((a,b)=>(b._fit-a._fit)||((b.vote_average||0)-(a.vote_average||0)));
+    const results=await enrichResults(raw,false);
+    results.forEach((it,i)=>{
+      const hits=(raw[i].genre_ids||[]).filter(g=>taste.genres.includes(g)).map(g=>GMAP[g]).filter(Boolean);
+      if(hits.length) it.whyText="Matchar din smak: "+hits.slice(0,2).join(", ");
+    });
+    const gnames=taste.genres.map(g=>GMAP[g]).filter(Boolean).join(", ");
+    $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${months} mån.`;
+    render({mode:"nytt",page,total_pages:Math.min(d.total_pages||1,500),results});
+  }catch(e){ $("#status").textContent="Fel: "+e.message; }
+}
+
 /* ====================== Trailer + detaljer ====================== */
 async function trailer(media,id){
   const mt=media==="tv"?"tv":"movie";
@@ -491,12 +589,14 @@ syncSlider();
 
 // Flikar
 function tab(name,restore){
+  if(!["search","rec","new"].includes(name)) name="search";
   document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
   document.querySelectorAll(".tabs button").forEach(b=>b.classList.remove("active"));
   $("#panel-"+name).classList.add("active");
-  $("#tab-"+(name==="search"?"search":"rec")).classList.add("active");
+  $("#tab-"+name).classList.add("active");
   LS.set("film_tab",name);
-  if(!restore){ $("#grid").innerHTML=""; $("#status").textContent=""; $("#pager").innerHTML=""; $("#recinfo").innerHTML=""; }
+  if(!restore){ $("#grid").innerHTML=""; $("#status").textContent=""; $("#pager").innerHTML="";
+                $("#recinfo").innerHTML=""; $("#newinfo").innerHTML=""; }
 }
 $("#q").value=LS.get("film_q","");
 $("#q").addEventListener("input",()=>LS.set("film_q",$("#q").value));
@@ -527,12 +627,93 @@ function paintCats(){ CATS.forEach(c=>c.closest(".cat").classList.toggle("on",c.
   }));
 })();
 
-// Favoritlista (per enhet i localStorage)
+// Favoritlista – startlista om inget sparat finns
+const DEFAULT_LIKES=["Conan The Barbarian","The thing","Cube","The fountain","Alien",
+ "Man from earth","Lord of the rings","The hobbit","Game of thrones","The walking dead",
+ "World war z","Pitch Black","Terminator","Law abiding citizen","The way back","2012",
+ "Black mirror","The next three days"];
 const LIKES=$("#likes");
-LIKES.value=LS.get("film_likes","");
-LIKES.addEventListener("input",()=>LS.set("film_likes",LIKES.value));
+LIKES.value=LS.get("film_likes", DEFAULT_LIKES.join("\n"));
+LS.set("film_likes",LIKES.value);
+function likesList(){ return (LIKES.value||"").split("\n").map(s=>s.trim()).filter(Boolean); }
+LIKES.addEventListener("input",()=>{ LS.set("film_likes",LIKES.value); scheduleFileSave(); });
 
-function rerun(){ if(cur.mode==="rec"&&(cur.recTitles||[]).length) recommend(1); else if(cur.q) go(1); }
+/* ---------- Spara favoriter i en riktig fil på datorn ---------- */
+function idbReq(fn){ return new Promise((res,rej)=>{ const r=indexedDB.open("filmdb",1);
+  r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains("kv")) r.result.createObjectStore("kv"); };
+  r.onsuccess=()=>{ try{ fn(r.result,res,rej); }catch(e){ rej(e); } }; r.onerror=()=>rej(r.error); }); }
+const idbSet=(k,v)=>idbReq((db,res,rej)=>{ const tx=db.transaction("kv","readwrite"); tx.objectStore("kv").put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); });
+const idbGet=k=>idbReq((db,res,rej)=>{ const tx=db.transaction("kv","readonly"); const q=tx.objectStore("kv").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); });
+
+let favHandle=null, fileTimer=null;
+function favPayload(){ return JSON.stringify({titles:likesList(), rated:RATED}, null, 2); }
+function setFileStatus(txt,ok){ const el=$("#filestatus"); el.textContent=txt||""; el.classList.toggle("ok",!!ok); }
+async function writeFavFile(){
+  if(!favHandle) return;
+  try{
+    if((await favHandle.queryPermission({mode:"readwrite"}))!=="granted") return;
+    const w=await favHandle.createWritable(); await w.write(favPayload()); await w.close();
+    setFileStatus("Autosparad till "+favHandle.name,true);
+  }catch(e){ setFileStatus("Kunde inte skriva filen: "+e.message); }
+}
+function scheduleFileSave(){ clearTimeout(fileTimer); fileTimer=setTimeout(writeFavFile,700); }
+async function connectFavFile(){
+  if(!window.showSaveFilePicker){
+    setFileStatus("Din webbläsare stödjer inte filsparning – använd Exportera/Importera.");
+    return;
+  }
+  try{
+    favHandle=await window.showSaveFilePicker({suggestedName:"film_favoriter.json",
+      types:[{description:"JSON",accept:{"application/json":[".json"]}}]});
+    await idbSet("favHandle",favHandle);
+    await writeFavFile();
+  }catch(e){ /* användaren avbröt */ }
+}
+async function readFavFile(){
+  try{
+    const f=await favHandle.getFile(); const d=JSON.parse(await f.text());
+    if(Array.isArray(d.titles)&&d.titles.length){ LIKES.value=d.titles.join("\n"); LS.set("film_likes",LIKES.value); }
+    if(d.rated&&typeof d.rated==="object"){ RATED=Object.assign({},d.rated,RATED); saveRated(); }
+    setFileStatus("Läst från "+favHandle.name,true);
+  }catch(e){}
+}
+async function restoreFavFile(){
+  try{
+    const h=await idbGet("favHandle"); if(!h) return;
+    favHandle=h;
+    const perm=await h.queryPermission({mode:"readwrite"});
+    if(perm==="granted"){ await readFavFile(); }
+    else{ setFileStatus("Fil kopplad ("+h.name+") – klicka \"Spara till fil…\" för att återansluta."); }
+  }catch(e){}
+}
+function exportFav(){
+  const blob=new Blob([favPayload()],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download="film_favoriter.json"; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  setFileStatus("Exporterad till nedladdningar.",true);
+}
+function importFav(){
+  const inp=document.createElement("input"); inp.type="file"; inp.accept=".json,application/json";
+  inp.onchange=async()=>{
+    const f=inp.files&&inp.files[0]; if(!f) return;
+    try{
+      const d=JSON.parse(await f.text());
+      if(Array.isArray(d.titles)){ LIKES.value=d.titles.join("\n"); LS.set("film_likes",LIKES.value); }
+      if(d.rated&&typeof d.rated==="object"){ RATED=Object.assign({},RATED,d.rated); saveRated(); }
+      for(const k in recCache) delete recCache[k];
+      setFileStatus("Importerad: "+f.name,true);
+    }catch(e){ setFileStatus("Kunde inte läsa filen."); }
+  };
+  inp.click();
+}
+
+function reloadCurrent(){ if(cur.mode==="new") newReleases(1); else recommend(1); }
+function rerun(){
+  if(cur.mode==="rec"&&likesList().length) recommend(1);
+  else if(cur.mode==="new") newReleases(1);
+  else if(cur.q) go(1);
+}
 
 async function go(page){
   if(!getTmdbKey()){ openKeys(); return; }
@@ -559,7 +740,7 @@ async function recommend(page){
     render(d);
   }catch(e){ $("#status").textContent="Fel: "+e.message; }
 }
-function loadPage(p){ (cur.mode==="rec"?recommend:go)(p); }
+function loadPage(p){ (cur.mode==="rec"?recommend:cur.mode==="new"?newReleases:go)(p); }
 
 /* Betygsklick (endast på rekommendationskort) */
 function pruneFromPools(media,id){
@@ -584,9 +765,10 @@ function rate(btn){
   // kom ihåg + ta bort ur poolerna
   RATED[media+":"+id]=r; saveRated();
   pruneFromPools(media,id);
+  scheduleFileSave();
   if(r==="happy"){
     addFavorite(title);
-    animateOut(card,()=>recommend(1));   // ladda om förslag med nya favoriten
+    animateOut(card,()=>reloadCurrent());   // ladda om listan med nya favoriten
   }else{
     animateOut(card,()=>card.remove());
   }
@@ -605,9 +787,10 @@ const RATEBOX=`<div class="ratebox"><span class="ratelabel">Redan sett?</span><d
 </div></div>`;
 function render(d){
   cur.tot=d.total_pages||1;
-  const isRec=d.mode==="rekommendation";
+  const isRec=(d.mode==="rekommendation"||d.mode==="nytt");   // betygsrad på förslag + nya
   const n=d.results.length;
-  const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",rekommendation:"förslag åt dig"}[d.mode]||d.mode;
+  const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",
+                 rekommendation:"förslag åt dig",nytt:"nya släpp i din smak"}[d.mode]||d.mode;
   $("#status").textContent=n?`${n} titlar (${modeTxt}) — sida ${d.page} av ${d.total_pages}`:"Inga träffar.";
   $("#grid").innerHTML=d.results.map(m=>{
     const rating=m.imdb_rating!=null?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
@@ -618,7 +801,8 @@ function render(d){
     const mtag=m.media==="tv"?`<span class="tag tv">TV-serie</span>`:"";
     const genres=(m.genres||[]).slice(0,3).map(g=>`<span class="tag">${esc(g)}</span>`).join("");
     const imdb=m.imdb_id?`<a class="imdb" target="_blank" href="https://www.imdb.com/title/${m.imdb_id}/">IMDb</a>`:"";
-    const why=m.overlap?`<div class="why">Matchar ${m.overlap} av dina favoriter</div>`:"";
+    const why=m.whyText?`<div class="why">${esc(m.whyText)}</div>`
+              :(m.overlap?`<div class="why">Matchar ${m.overlap} av dina favoriter</div>`:"");
     return `<div class="card">${poster}<div class="body">
       <div class="title">${esc(m.title)} <span>${m.year||""}</span></div>
       ${why}<div class="genres">${mtag}${genres}</div>
@@ -679,8 +863,9 @@ tab(LS.get("film_tab","search")==="rec"?"rec":"search",true);
 
 // Start
 (async function start(){
-  if(!getTmdbKey()){ openKeys(); }
-  else{ await loadGenres(); }
+  if(!getTmdbKey()){ openKeys(); return; }
+  await loadGenres();
+  await restoreFavFile();     // återanslut ev. sparad favoritfil
 })();
 </script>
 </body>
