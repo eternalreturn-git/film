@@ -238,11 +238,24 @@ function tmdb(path, params={}){
   for(const [k,v] of Object.entries(params)){ if(v!==undefined&&v!==null&&v!=="") u.searchParams.set(k,v); }
   return fetch(u.toString(),{cache:"no-store"}).then(r=>{ if(!r.ok) throw new Error("TMDb "+r.status); return r.json(); });
 }
+/* Beständig cache: imdb-id + IMDb-betyg (sparas i webbläsaren → inga upprepade anrop) */
+function loadCache(k){ try{ return JSON.parse(localStorage.getItem(k)||"{}"); }catch(e){ return {}; } }
+let IMDBC=loadCache("film_imdb_cache");   // imdbId -> betyg (eller "NA")
+let EXTC =loadCache("film_ext_cache");    // "media:id" -> imdbId (eller "NONE")
+let cacheTimer=null;
+function saveCaches(){ clearTimeout(cacheTimer); cacheTimer=setTimeout(()=>{
+  try{ localStorage.setItem("film_imdb_cache",JSON.stringify(IMDBC));
+       localStorage.setItem("film_ext_cache",JSON.stringify(EXTC)); }catch(e){}
+},500); }
+
 async function omdbImdb(imdb_id){
   const key=getOmdbKey(); if(!key||!imdb_id) return null;
+  if(imdb_id in IMDBC){ const v=IMDBC[imdb_id]; return v==="NA"?null:v; }   // cache-träff
+  let out=null;
   try{ const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
-       const v=d.imdbRating; if(v&&v!=="N/A") return parseFloat(v); }catch(e){}
-  return null;
+       const v=d.imdbRating; if(v&&v!=="N/A") out=parseFloat(v); }catch(e){ return null; /* nätfel → cacha ej */ }
+  IMDBC[imdb_id]=(out==null?"NA":out); saveCaches();
+  return out;
 }
 
 /* ====================== Ordlistor (svensk→engelsk, alias) ====================== */
@@ -365,7 +378,12 @@ function pack(m){
 async function enrichResults(raw,sort){
   const out=raw.map(pack);
   await Promise.all(out.map(async it=>{
-    try{ const ext=await tmdb(`/${it.media}/${it.id}/external_ids`); it.imdb_id=ext.imdb_id; }catch(e){ it.imdb_id=null; }
+    const ck=it.media+":"+it.id;
+    if(ck in EXTC){ it.imdb_id=EXTC[ck]==="NONE"?null:EXTC[ck]; }   // cache-träff
+    else{
+      try{ const ext=await tmdb(`/${it.media}/${it.id}/external_ids`); it.imdb_id=ext.imdb_id||null; }catch(e){ it.imdb_id=null; }
+      EXTC[ck]=it.imdb_id||"NONE"; saveCaches();
+    }
     it.imdb_rating=await omdbImdb(it.imdb_id);
   }));
   if(sort) out.sort((a,b)=>((b.imdb_rating||b.tmdb_rating)-(a.imdb_rating||a.tmdb_rating)));
