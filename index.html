@@ -56,6 +56,14 @@
   .slider input[type=range]{position:absolute;top:0;left:0;width:100%;height:30px;margin:0;-webkit-appearance:none;appearance:none;background:none;pointer-events:none}
   .slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--acc);border:2px solid #04101f;cursor:pointer}
   .slider input[type=range]::-moz-range-thumb{pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--acc);border:2px solid #04101f;cursor:pointer}
+  .rbox{max-width:640px;margin:10px auto 2px;padding:0 16px}
+  .rlabel{color:var(--mut);font-size:13px;margin-bottom:6px}
+  .rlabel b{color:var(--fg)}
+  input[type=range].single{width:100%;height:22px;-webkit-appearance:none;appearance:none;background:transparent;margin:0;padding:0}
+  input[type=range].single::-webkit-slider-runnable-track{height:4px;border-radius:3px;background:#2a313c}
+  input[type=range].single::-moz-range-track{height:4px;border-radius:3px;background:#2a313c}
+  input[type=range].single::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-7px;width:18px;height:18px;border-radius:50%;background:var(--acc);border:2px solid #04101f;cursor:pointer}
+  input[type=range].single::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--acc);border:2px solid #04101f;cursor:pointer}
   .status{text-align:center;color:var(--mut);min-height:20px;font-size:13px;margin:6px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;max-width:1180px;margin:8px auto 30px;padding:0 16px}
   .card{background:var(--card);border:1px solid #232a34;border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
@@ -178,6 +186,10 @@
   </div>
 </div>
 
+<div class="rbox">
+  <div class="rlabel">Minsta IMDb-betyg: <b id="mlo">Alla</b></div>
+  <input type="range" id="minrating" class="single" min="0" max="10" step="0.5" value="0">
+</div>
 <div class="catlabel">Kategorier — avmarkera en för att dölja den (allt ikryssat = inga begränsningar)</div>
 <div class="cats" id="cats"></div>
 
@@ -602,6 +614,13 @@ function syncSlider(){
 });
 syncSlider();
 
+// Minsta IMDb-betyg (filtrerar direkt, ingen omsökning)
+const MINR=$("#minrating");
+MINR.value=LS.get("film_minr","0");
+function paintMinr(){ const v=+MINR.value; $("#mlo").textContent=v>0?v.toFixed(1)+"+":"Alla"; }
+paintMinr();
+MINR.addEventListener("input",()=>{ paintMinr(); LS.set("film_minr",MINR.value); draw(); });
+
 // Flikar
 function tab(name,restore){
   if(!["search","rec","new"].includes(name)) name="search";
@@ -801,14 +820,22 @@ const RATEBOX=`<div class="ratebox"><span class="ratelabel">Redan sett?</span><d
   <button class="face neutral" data-r="neutral" aria-label="Sådär" title="Sådär">${FACE_NEUTRAL}</button>
   <button class="face happy" data-r="happy" aria-label="Gillade – lägg till favorit" title="Gillade">${FACE_HAPPY}</button>
 </div></div>`;
-function render(d){
+let curData=null;
+function ratingOf(m){ return (m.imdb_rating!=null?m.imdb_rating:m.tmdb_rating)||0; }
+function render(d){ curData=d; draw(); }
+function draw(){
+  const d=curData; if(!d) return;
   cur.tot=d.total_pages||1;
   const isRec=(d.mode==="rekommendation"||d.mode==="nytt");   // betygsrad på förslag + nya
-  const n=d.results.length;
+  const minR=+MINR.value||0;
+  const rows=d.results.filter(m=>ratingOf(m)>=minR);
   const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",
                  rekommendation:"förslag åt dig",nytt:"nya släpp i din smak"}[d.mode]||d.mode;
-  $("#status").textContent=n?`${n} titlar (${modeTxt}) — sida ${d.page} av ${d.total_pages}`:"Inga träffar.";
-  $("#grid").innerHTML=d.results.map(m=>{
+  const filtNote=minR>0?` (betyg ≥ ${minR.toFixed(1)})`:"";
+  $("#status").textContent=rows.length
+    ? `${rows.length} titlar (${modeTxt})${filtNote} — sida ${d.page} av ${d.total_pages}`
+    : (minR>0?`Inga med betyg ≥ ${minR.toFixed(1)} på denna sida.`:"Inga träffar.");
+  $("#grid").innerHTML=rows.map(m=>{
     const rating=m.imdb_rating!=null?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
     const pd=`data-id="${m.id}" data-media="${m.media||'movie'}" data-title="${esc(m.title)}" data-year="${m.year||''}"`;
     const poster=m.poster
