@@ -250,13 +250,16 @@ function saveCaches(){ clearTimeout(cacheTimer); cacheTimer=setTimeout(()=>{
        localStorage.setItem("film_ext_cache",JSON.stringify(EXTC)); }catch(e){}
 },500); }
 
+const NA_TTL=7*864e5;   // tomt betyg cachas bara 7 dygn (nya filmer får betyg senare)
 async function omdbImdb(imdb_id){
   const key=getOmdbKey(); if(!key||!imdb_id) return null;
-  if(imdb_id in IMDBC){ const v=IMDBC[imdb_id]; return v==="NA"?null:v; }   // cache-träff
+  const c=IMDBC[imdb_id];
+  if(typeof c==="number") return c;                                   // känt betyg
+  if(typeof c==="string" && c.startsWith("NA:") && (Date.now()-(+c.slice(3))<NA_TTL)) return null; // nyligen tomt
   let out=null;
   try{ const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
        const v=d.imdbRating; if(v&&v!=="N/A") out=parseFloat(v); }catch(e){ return null; /* nätfel → cacha ej */ }
-  IMDBC[imdb_id]=(out==null?"NA":out); saveCaches();
+  IMDBC[imdb_id]=(out==null?("NA:"+Date.now()):out); saveCaches();
   return out;
 }
 
