@@ -159,10 +159,12 @@
     <div class="newbox">
       <label>Släppta senaste
         <select id="newperiod">
-          <option value="3">3 månaderna</option>
-          <option value="6" selected>6 månaderna</option>
-          <option value="12">året</option>
-          <option value="24">2 åren</option>
+          <option value="7">veckan</option>
+          <option value="30">månaden</option>
+          <option value="90">3 månaderna</option>
+          <option value="180" selected>6 månaderna</option>
+          <option value="365">året</option>
+          <option value="730">2 åren</option>
         </select>
       </label>
       <button onclick="newReleases(1)">Visa nya i min smak</button>
@@ -511,7 +513,7 @@ async function recommendMovies(titles,ymin,ymax,media,page,genres){
 
 /* ====================== Nya släpp i din smak ====================== */
 const tasteCache={};
-function isoMonthsAgo(n){ const d=new Date(); d.setMonth(d.getMonth()-n); return d.toISOString().slice(0,10); }
+function isoDaysAgo(n){ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
 function isoToday(){ return new Date().toISOString().slice(0,10); }
 
 async function tasteProfile(titles,media){
@@ -543,15 +545,17 @@ async function newReleases(page){
   $("#status").textContent="Letar nya släpp…"; $("#grid").innerHTML=""; $("#pager").innerHTML="";
   try{
     const media=mediaMode, isTv=media==="tv";
-    const months=+($("#newperiod").value||6);
+    const sel=$("#newperiod"); const days=+(sel.value||180);
+    const periodTxt=sel.options[sel.selectedIndex].textContent.trim();
     const taste=await tasteProfile(titles,media);
     if(!taste.genres.length){ $("#status").textContent="Kunde inte läsa av din smak – lägg till fler favoriter."; return; }
     const {blacklist,without}=genreSetup(selectedCats());
-    const from=isoMonthsAgo(months), to=isoToday();
+    const from=isoDaysAgo(days), to=isoToday();
+    const short=days<=31;   // korta fönster: nya släpp har få röster → lägre tröskel
     const p={sort_by:"popularity.desc",language:"en-US",page,without_genres:without,
              with_genres:taste.genres.join("|")};
-    if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=5; }
-    else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=10; p.include_adult="false"; }
+    if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=short?0:5; }
+    else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=short?0:10; p.include_adult="false"; }
     const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
     let raw=tag(d.results||[],media);
     raw=raw.filter(m=>{
@@ -570,7 +574,7 @@ async function newReleases(page){
       if(hits.length) it.whyText="Matchar din smak: "+hits.slice(0,2).join(", ");
     });
     const gnames=taste.genres.map(g=>GMAP[g]).filter(Boolean).join(", ");
-    $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${months} mån.`;
+    $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${esc(periodTxt)}.`;
     render({mode:"nytt",page,total_pages:Math.min(d.total_pages||1,500),results});
   }catch(e){ $("#status").textContent="Fel: "+e.message; }
 }
@@ -631,6 +635,11 @@ function syncSlider(){
   el.addEventListener("change",()=>{ LS.set("film_ymin",YMIN.value); LS.set("film_ymax",YMAX.value); rerun(); });
 });
 syncSlider();
+
+// Periodval för "Nya filmer" (kommer ihåg sig)
+const NEWP=$("#newperiod");
+NEWP.value=LS.get("film_newperiod",NEWP.value);
+NEWP.addEventListener("change",()=>{ LS.set("film_newperiod",NEWP.value); if(cur.mode==="new") newReleases(1); });
 
 // Minsta IMDb-betyg (filtrerar direkt, ingen omsökning)
 const MINR=$("#minrating");
