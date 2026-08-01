@@ -38,6 +38,7 @@
   .opts{display:flex;justify-content:center;gap:14px;align-items:center;margin:4px auto 2px;color:var(--mut);font-size:13px;flex-wrap:wrap}
   .opts label{display:flex;gap:7px;align-items:center;cursor:pointer}
   .opts input{width:auto;margin:0}
+  .opts select{padding:6px 10px;border-radius:8px;border:1px solid #2a313c;background:#11151b;color:var(--fg);font-size:13px}
   .seg{display:inline-flex;border:1px solid #2a313c;border-radius:20px;overflow:hidden;background:#11151b}
   .seg button{width:auto;margin:0;border-radius:0;background:transparent;color:var(--mut);font-weight:600;padding:7px 18px;font-size:13px}
   .seg button.active{background:var(--acc);color:#04101f}
@@ -180,6 +181,13 @@
     <button data-m="movie" class="active">Filmer</button>
     <button data-m="tv">TV-serier</button>
   </div>
+  <label>Sortera:
+    <select id="sortmode">
+      <option value="rating">Betyg</option>
+      <option value="date">Senast släppt</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="onlyimdb"> Endast IMDb-betyg</label>
 </div>
 
 <div class="yearbox">
@@ -376,7 +384,7 @@ function pack(m){
   const mt=m._mt||"movie";
   const title=m.title||m.name||m.original_title||m.original_name||"—";
   const date=m.release_date||m.first_air_date||"";
-  return {id:m.id,media:mt,title,year:date.slice(0,4),overview:m.overview||"",
+  return {id:m.id,media:mt,title,year:date.slice(0,4),date,overview:m.overview||"",
           poster:m.poster_path?IMG+m.poster_path:null,
           tmdb_rating:Math.round((m.vote_average||0)*10)/10,votes:m.vote_count||0,
           original_language:m.original_language,
@@ -402,12 +410,14 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
   const isTv=media==="tv";
   const plan=await resolveQuery(query);
   const {blacklist,without}=genreSetup(genres);
+  const minR=+MINR.value||0;
+  const vaFloor=minR>0?{"vote_average.gte":Math.max(0,minR-1)}:{};   // fyllnadare sidor vid betygsgolv
   const discMovie=ex=>tmdb("/discover/movie",Object.assign(
     {"vote_count.gte":100,"primary_release_date.gte":ymin+"-01-01","primary_release_date.lte":ymax+"-12-31",
-     sort_by:"vote_average.desc",include_adult:"false",language:"en-US",page,without_genres:without},ex||{}));
+     sort_by:discSort(false),include_adult:"false",language:"en-US",page,without_genres:without},vaFloor,ex||{}));
   const discTv=ex=>tmdb("/discover/tv",Object.assign(
     {"vote_count.gte":40,"first_air_date.gte":ymin+"-01-01","first_air_date.lte":ymax+"-12-31",
-     sort_by:"vote_average.desc",language:"en-US",page,without_genres:without},ex||{}));
+     sort_by:discSort(true),language:"en-US",page,without_genres:without},vaFloor,ex||{}));
 
   let raw=[], total_pages=1, mode;
   if(plan.kind==="person"){
@@ -557,8 +567,10 @@ async function newReleases(page){
     const {blacklist,without}=genreSetup(selectedCats());
     const from=isoDaysAgo(days), to=isoToday();
     const short=days<=31;   // korta fönster: nya släpp har få röster → lägre tröskel
-    const p={sort_by:"popularity.desc",language:"en-US",page,without_genres:without,
+    const minR=+MINR.value||0;
+    const p={sort_by:discSort(isTv),language:"en-US",page,without_genres:without,
              with_genres:taste.genres.join("|")};
+    if(minR>0) p["vote_average.gte"]=Math.max(0,minR-1);
     if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=short?0:5; }
     else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=short?0:10; p.include_adult="false"; }
     const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
@@ -640,6 +652,17 @@ function syncSlider(){
   el.addEventListener("change",()=>{ LS.set("film_ymin",YMIN.value); LS.set("film_ymax",YMAX.value); rerun(); });
 });
 syncSlider();
+
+// Sortering (betyg / senast släppt) – kräver omsökning så API:t sorterar rätt
+const SORT=$("#sortmode");
+SORT.value=LS.get("film_sort","rating");
+function discSort(isTv){ return SORT.value==="date" ? (isTv?"first_air_date.desc":"primary_release_date.desc") : "vote_average.desc"; }
+SORT.addEventListener("change",()=>{ LS.set("film_sort",SORT.value); rerun(); });
+
+// Endast IMDb-betyg – filtrerar direkt (döljer röda TMDb-fallbacks)
+const ONLYIMDB=$("#onlyimdb");
+ONLYIMDB.checked=LS.get("film_onlyimdb","0")==="1";
+ONLYIMDB.addEventListener("change",()=>{ LS.set("film_onlyimdb",ONLYIMDB.checked?"1":"0"); draw(); });
 
 // Periodval för "Nya filmer" (kommer ihåg sig)
 const NEWP=$("#newperiod");
@@ -860,12 +883,18 @@ function draw(){
   cur.tot=d.total_pages||1;
   const isRec=(d.mode==="rekommendation"||d.mode==="nytt");   // betygsrad på förslag + nya
   const minR=+MINR.value||0;
-  const rows=d.results.filter(m=>ratingOf(m)>=minR);
+  let rows=d.results.filter(m=>ratingOf(m)>=minR);
+  if(ONLYIMDB.checked) rows=rows.filter(m=>m.imdb_rating!=null);   // dölj TMDb-fallbacks
+  if(SORT.value==="date") rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  else rows.sort((a,b)=>ratingOf(b)-ratingOf(a));
   const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",
                  rekommendation:"förslag åt dig",nytt:"nya släpp i din smak"}[d.mode]||d.mode;
   const filtNote=minR>0?` (betyg ≥ ${minR.toFixed(1)})`:"";
+  const head = d.total_pages>1
+    ? `Sida ${d.page} av ${d.total_pages} · ${rows.length} på sidan (${modeTxt})${filtNote}`
+    : `${rows.length} titlar (${modeTxt})${filtNote}`;
   $("#status").textContent=rows.length
-    ? `${rows.length} titlar (${modeTxt})${filtNote} — sida ${d.page} av ${d.total_pages}`
+    ? head
     : (minR>0?`Inga med betyg ≥ ${minR.toFixed(1)} på denna sida.`:"Inga träffar.");
   $("#grid").innerHTML=rows.map(m=>{
     const isImdb=m.imdb_rating!=null;
