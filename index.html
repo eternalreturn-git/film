@@ -71,6 +71,8 @@
   .noposter{display:flex;align-items:center;justify-content:center;height:100%;color:#3a4452;font-size:13px}
   .badge{position:absolute;top:8px;right:8px;background:rgba(8,12,18,.85);color:var(--gold);font-weight:700;padding:3px 8px;border-radius:8px;font-size:13px}
   .badge small{color:var(--mut);font-weight:500}
+  .badge.tmdb{color:#ff6b6b}                 /* inget IMDb-betyg → rött (misstänkt) */
+  .badge.tmdb small{color:#c9605f}
   .body{padding:11px 12px 13px;display:flex;flex-direction:column;gap:7px;flex:1}
   .title{font-weight:650;line-height:1.25}
   .title span{color:var(--mut);font-weight:500;font-size:13px}
@@ -866,11 +868,13 @@ function draw(){
     ? `${rows.length} titlar (${modeTxt})${filtNote} — sida ${d.page} av ${d.total_pages}`
     : (minR>0?`Inga med betyg ≥ ${minR.toFixed(1)} på denna sida.`:"Inga träffar.");
   $("#grid").innerHTML=rows.map(m=>{
-    const rating=m.imdb_rating!=null?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
+    const isImdb=m.imdb_rating!=null;
+    const rating=isImdb?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
+    const bc=isImdb?"badge":"badge tmdb";
     const pd=`data-id="${m.id}" data-media="${m.media||'movie'}" data-title="${esc(m.title)}" data-year="${m.year||''}"`;
     const poster=m.poster
-      ? `<div class="poster" ${pd} style="background-image:url('${m.poster}')"><div class="badge">${rating}</div></div>`
-      : `<div class="poster" ${pd}><div class="badge">${rating}</div><div class="noposter">Ingen poster</div></div>`;
+      ? `<div class="poster" ${pd} style="background-image:url('${m.poster}')"><div class="${bc}">${rating}</div></div>`
+      : `<div class="poster" ${pd}><div class="${bc}">${rating}</div><div class="noposter">Ingen poster</div></div>`;
     const mtag=m.media==="tv"?`<span class="tag tv">TV-serie</span>`:"";
     const genres=(m.genres||[]).slice(0,3).map(g=>`<span class="tag">${esc(g)}</span>`).join("");
     const imdb=m.imdb_id?`<a class="imdb" target="_blank" href="https://www.imdb.com/title/${m.imdb_id}/">IMDb</a>`:"";
