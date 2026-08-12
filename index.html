@@ -252,15 +252,16 @@ function tmdb(path, params={}){
 }
 /* Beständig cache: imdb-id + IMDb-betyg (sparas i webbläsaren → inga upprepade anrop) */
 function loadCache(k){ try{ return JSON.parse(localStorage.getItem(k)||"{}"); }catch(e){ return {}; } }
-let IMDBC=loadCache("film_imdb_cache");   // imdbId -> betyg (eller "NA")
+let IMDBC=loadCache("film_imdb_cache2");   // imdbId -> {r,t} (v2: med röst-krav)
 let EXTC =loadCache("film_ext_cache");    // "media:id" -> imdbId (eller "NONE")
 let cacheTimer=null;
 function saveCaches(){ clearTimeout(cacheTimer); cacheTimer=setTimeout(()=>{
-  try{ localStorage.setItem("film_imdb_cache",JSON.stringify(IMDBC));
+  try{ localStorage.setItem("film_imdb_cache2",JSON.stringify(IMDBC));
        localStorage.setItem("film_ext_cache",JSON.stringify(EXTC)); }catch(e){}
 },500); }
 
 const RATED_TTL=14*864e5, NA_TTL=7*864e5;   // betyg omkollas efter 14 dygn, tomt efter 7
+const MIN_IMDB_VOTES=1000;   // färre röster än så = opålitligt betyg (t.ex. 10 från 8 röster) → ignoreras
 async function omdbImdb(imdb_id){
   const key=getOmdbKey(); if(!key||!imdb_id) return null;
   const c=IMDBC[imdb_id];
@@ -271,7 +272,10 @@ async function omdbImdb(imdb_id){
   }
   let out=null;
   try{ const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
-       const v=d.imdbRating; if(v&&v!=="N/A") out=parseFloat(v); }catch(e){ return null; /* nätfel → cacha ej */ }
+       const v=d.imdbRating;
+       const votes=+((d.imdbVotes||"").replace(/[^0-9]/g,"")||0);
+       if(v&&v!=="N/A"&&votes>=MIN_IMDB_VOTES) out=parseFloat(v);   // kräv tillräckligt många röster
+  }catch(e){ return null; /* nätfel → cacha ej */ }
   IMDBC[imdb_id]={r:out,t:Date.now()}; saveCaches();
   return out;
 }
