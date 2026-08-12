@@ -580,8 +580,10 @@ async function newReleases(page){
       const p={sort_by:discSort(isTv),language:"en-US",page:pg,without_genres:without,
                with_genres:taste.genres.join("|")};
       if(minR>0) p["vote_average.gte"]=Math.max(0,minR-1);
-      if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=short?0:5; }
-      else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=short?0:10; p.include_adult="false"; }
+      // röst-tröskel så 1-röstsfilmer (falska 10:or) aldrig dyker upp; skalar med fönstret
+      const vc = days<=7 ? (isTv?10:20) : days<=31 ? (isTv?20:50) : (isTv?30:100);
+      if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=vc; }
+      else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=vc; p.include_adult="false"; }
       const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
       let raw=tag(d.results||[],media).filter(m=>{
         const key=media+":"+m.id;
