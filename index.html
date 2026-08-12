@@ -571,31 +571,33 @@ async function newReleases(page){
     const from=isoDaysAgo(days), to=isoToday();
     const short=days<=31;   // korta fönster: nya släpp har få röster → lägre tröskel
     const minR=+MINR.value||0;
-    const p={sort_by:discSort(isTv),language:"en-US",page,without_genres:without,
-             with_genres:taste.genres.join("|")};
-    if(minR>0) p["vote_average.gte"]=Math.max(0,minR-1);
-    if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=short?0:5; }
-    else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=short?0:10; p.include_adult="false"; }
-    const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
-    let raw=tag(d.results||[],media);
-    raw=raw.filter(m=>{
-      const key=media+":"+m.id;
-      if(key in RATED) return false;              // redan betygsatt
-      if(taste.own.has(key)) return false;        // egen favorit
-      return genreKeep(m,blacklist);
-    });
-    // ranka efter hur väl den träffar din smak
     const w=taste.counts;
-    raw.forEach(m=>{ m._fit=(m.genre_ids||[]).reduce((s,g)=>s+(taste.genres.includes(g)?(w[g]||1):0),0); });
-    raw.sort((a,b)=>(b._fit-a._fit)||((b.vote_average||0)-(a.vote_average||0)));
-    const results=await enrichResults(raw,false);
-    results.forEach((it,i)=>{
-      const hits=(raw[i].genre_ids||[]).filter(g=>taste.genres.includes(g)).map(g=>GMAP[g]).filter(Boolean);
-      if(hits.length) it.whyText="Matchar din smak: "+hits.slice(0,2).join(", ");
-    });
+    const fetchPage=async pg=>{
+      const p={sort_by:discSort(isTv),language:"en-US",page:pg,without_genres:without,
+               with_genres:taste.genres.join("|")};
+      if(minR>0) p["vote_average.gte"]=Math.max(0,minR-1);
+      if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=short?0:5; }
+      else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=short?0:10; p.include_adult="false"; }
+      const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
+      let raw=tag(d.results||[],media).filter(m=>{
+        const key=media+":"+m.id;
+        if(key in RATED) return false;              // redan betygsatt
+        if(taste.own.has(key)) return false;        // egen favorit
+        return genreKeep(m,blacklist);
+      });
+      raw.forEach(m=>{ m._fit=(m.genre_ids||[]).reduce((s,g)=>s+(taste.genres.includes(g)?(w[g]||1):0),0); });
+      raw.sort((a,b)=>(b._fit-a._fit)||((b.vote_average||0)-(a.vote_average||0)));
+      const results=await enrichResults(raw,false);
+      results.forEach((it,i)=>{
+        const hits=(raw[i].genre_ids||[]).filter(g=>taste.genres.includes(g)).map(g=>GMAP[g]).filter(Boolean);
+        if(hits.length) it.whyText="Matchar din smak: "+hits.slice(0,2).join(", ");
+      });
+      return {mode:"nytt",page:pg,total_pages:Math.min(d.total_pages||1,500),results};
+    };
+    let d=await fetchPage(page); d=await seekNonEmpty(fetchPage,d);
     const gnames=taste.genres.map(g=>GMAP[g]).filter(Boolean).join(", ");
     $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${esc(periodTxt)}.`;
-    render({mode:"nytt",page,total_pages:Math.min(d.total_pages||1,500),results});
+    render(d);
   }catch(e){ $("#status").textContent="Fel: "+e.message; }
 }
 
@@ -807,13 +809,24 @@ function rerun(){
   else if(cur.q) go(1);
 }
 
+// Hoppa förbi sidor som blir tomma av klientfiltren (upp till 5 extra sidor)
+async function seekNonEmpty(fetchPage, d){
+  let n=0;
+  while(viewFilter(d.results).length===0 && d.page<d.total_pages && n<5){
+    n++; $("#status").textContent=`Söker vidare… (sida ${d.page+1})`;
+    d=await fetchPage(d.page+1);
+  }
+  return d;
+}
 async function go(page){
   if(!getTmdbKey()){ openKeys(); return; }
   const q=$("#q").value.trim(); if(!q) return;
   cur.q=q; cur.page=page; cur.mode="search";
   $("#status").textContent="Söker…"; $("#pager").innerHTML="";
-  try{ const d=await searchMovies(q,page,+YMIN.value,+YMAX.value,mediaMode,selectedCats()); render(d); }
-  catch(e){ $("#status").textContent="Fel: "+e.message; $("#grid").innerHTML=""; }
+  try{
+    const fp=p=>searchMovies(q,p,+YMIN.value,+YMAX.value,mediaMode,selectedCats());
+    let d=await fp(page); d=await seekNonEmpty(fp,d); render(d);
+  }catch(e){ $("#status").textContent="Fel: "+e.message; $("#grid").innerHTML=""; }
 }
 async function recommend(page){
   if(!getTmdbKey()){ openKeys(); return; }
@@ -824,7 +837,8 @@ async function recommend(page){
   cur.mode="rec"; cur.page=page;
   $("#status").textContent="Letar förslag…"; $("#grid").innerHTML=""; $("#pager").innerHTML="";
   try{
-    const d=await recommendMovies(titles,+YMIN.value,+YMAX.value,mediaMode,page,selectedCats());
+    const fp=p=>recommendMovies(titles,+YMIN.value,+YMAX.value,mediaMode,p,selectedCats());
+    let d=await fp(page); d=await seekNonEmpty(fp,d);
     const rec=(d.recognized||[]).map(x=>esc(x.title||x.q)).join(", ");
     let info=rec?`Baserat på: ${rec}.`:"";
     if(d.unknown&&d.unknown.length) info+=` <span class="unknown">Hittade inte: ${d.unknown.map(esc).join(", ")}.</span>`;
@@ -880,25 +894,32 @@ const RATEBOX=`<div class="ratebox"><span class="ratelabel">Redan sett?</span><d
 </div></div>`;
 let curData=null;
 function ratingOf(m){ return (m.imdb_rating!=null?m.imdb_rating:m.tmdb_rating)||0; }
+// Klientfilter (betygsgolv + endast-IMDb) + sortering — delas av draw och tom-sid-hoppet
+function viewFilter(results){
+  const minR=+MINR.value||0;
+  let rows=results.filter(m=>ratingOf(m)>=minR);
+  if(ONLYIMDB.checked) rows=rows.filter(m=>m.imdb_rating!=null);   // dölj TMDb-fallbacks
+  if(SORT.value==="date") rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  else rows.sort((a,b)=>ratingOf(b)-ratingOf(a));
+  return rows;
+}
 function render(d){ curData=d; draw(); }
 function draw(){
   const d=curData; if(!d) return;
   cur.tot=d.total_pages||1;
   const isRec=(d.mode==="rekommendation"||d.mode==="nytt");   // betygsrad på förslag + nya
   const minR=+MINR.value||0;
-  let rows=d.results.filter(m=>ratingOf(m)>=minR);
-  if(ONLYIMDB.checked) rows=rows.filter(m=>m.imdb_rating!=null);   // dölj TMDb-fallbacks
-  if(SORT.value==="date") rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  else rows.sort((a,b)=>ratingOf(b)-ratingOf(a));
+  const rows=viewFilter(d.results);
   const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",
                  rekommendation:"förslag åt dig",nytt:"nya släpp i din smak"}[d.mode]||d.mode;
   const filtNote=minR>0?` (betyg ≥ ${minR.toFixed(1)})`:"";
   const head = d.total_pages>1
     ? `Sida ${d.page} av ${d.total_pages} · ${rows.length} på sidan (${modeTxt})${filtNote}`
     : `${rows.length} titlar (${modeTxt})${filtNote}`;
-  $("#status").textContent=rows.length
-    ? head
-    : (minR>0?`Inga med betyg ≥ ${minR.toFixed(1)} på denna sida.`:"Inga träffar.");
+  let emptyMsg="Inga träffar.";
+  if(ONLYIMDB.checked) emptyMsg="Inga med IMDb-betyg här – prova att stänga av \"Endast IMDb-betyg\" eller vidga perioden.";
+  else if(minR>0) emptyMsg=`Inga med betyg ≥ ${minR.toFixed(1)} här – sänk betyget eller vidga perioden.`;
+  $("#status").textContent=rows.length ? head : emptyMsg;
   $("#grid").innerHTML=rows.map(m=>{
     const isImdb=m.imdb_rating!=null;
     const rating=isImdb?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
