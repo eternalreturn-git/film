@@ -255,6 +255,7 @@ async function tmdb(path, params={}){
 }
 /* Beständig cache: imdb-id + IMDb-betyg (sparas i webbläsaren → inga upprepade anrop) */
 function loadCache(k){ try{ return JSON.parse(localStorage.getItem(k)||"{}"); }catch(e){ return {}; } }
+const brokenKw=new Set();   // nyckelords-id som ger TMDb 500 denna session → hoppas
 let IMDBC=loadCache("film_imdb_cache2");   // imdbId -> {r,t} (v2: med röst-krav)
 let EXTC =loadCache("film_ext_cache");    // "media:id" -> imdbId (eller "NONE")
 let cacheTimer=null;
@@ -445,10 +446,11 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
     }
   }else if(plan.kind==="keywords_and"||plan.kind==="keywords_or"){
     mode="tema"; const op=plan.kind==="keywords_and"?",":"|";
+    const ids=plan.ids.filter(id=>!brokenKw.has(id));   // hoppa kända trasiga nyckelord direkt
     const discKw=async kw=>{ try{ return isTv?await discTv({with_keywords:kw}):await discMovie({with_keywords:kw}); }catch(e){ return null; } };
-    let dd=await discKw(plan.ids.join(op));
-    if(!dd){   // TMDb 500 på något nyckelord → prova ett i taget, slå ihop de som funkar
-      const parts=(await Promise.all(plan.ids.map(id=>discKw(""+id)))).filter(Boolean);
+    let dd = ids.length ? await discKw(ids.join(op)) : null;
+    if(!dd && ids.length){   // TMDb 500 → prova ett i taget, markera trasiga så de hoppas nästa gång
+      const parts=(await Promise.all(ids.map(async id=>{ const r=await discKw(""+id); if(!r) brokenKw.add(id); return r; }))).filter(Boolean);
       if(parts.length){
         const seen=new Set(), merged=[];
         parts.forEach(p=>(p.results||[]).forEach(m=>{ if(!seen.has(m.id)){ seen.add(m.id); merged.push(m); } }));
@@ -456,7 +458,7 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
       }
     }
     if(dd){ raw=tag(dd.results||[],media); total_pages=dd.total_pages||1; }
-    // om dd fortfarande null (alla nyckelord trasiga) → tom raw → titel-fallback nedan
+    // om dd null (alla nyckelord trasiga) → tom raw → titel-fallback nedan
   }else{
     mode="titel";
     if(isTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
