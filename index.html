@@ -248,8 +248,12 @@ async function tmdb(path, params={}){
   const u=new URL(TMDB+path);
   u.searchParams.set("api_key", getTmdbKey());
   for(const [k,v] of Object.entries(params)){ if(v!==undefined&&v!==null&&v!=="") u.searchParams.set(k,v); }
-  let r=await fetch(u.toString(),{cache:"no-store"});
-  if(r.status>=500){ await new Promise(x=>setTimeout(x,500)); r=await fetch(u.toString(),{cache:"no-store"}); }  // TMDb 500 = ofta tillfälligt
+  let r;
+  for(let a=0;a<4;a++){                       // upp till 3 omförsök – TMDb 500 är ofta flaky
+    r=await fetch(u.toString(),{cache:"no-store"});
+    if(r.status<500) break;
+    if(a<3) await new Promise(x=>setTimeout(x,300*(a+1)));
+  }
   if(!r.ok) throw new Error("TMDb "+r.status);
   return r.json();
 }
@@ -599,7 +603,12 @@ async function newReleases(page){
       const vc = days<=7 ? (isTv?10:20) : days<=31 ? (isTv?20:50) : (isTv?30:100);
       if(isTv){ p["first_air_date.gte"]=from; p["first_air_date.lte"]=to; p["vote_count.gte"]=vc; }
       else{ p["primary_release_date.gte"]=from; p["primary_release_date.lte"]=to; p["vote_count.gte"]=vc; p.include_adult="false"; }
-      const d=await tmdb(isTv?"/discover/tv":"/discover/movie",p);
+      const path=isTv?"/discover/tv":"/discover/movie";
+      let d;
+      try{ d=await tmdb(path,p); }
+      catch(e){   // datum-sortering kan vara trasig hos TMDb → fall tillbaka på betyg (draw sorterar sidan ändå)
+        if(p.sort_by!=="vote_average.desc"){ p.sort_by="vote_average.desc"; d=await tmdb(path,p); } else throw e;
+      }
       let raw=tag(d.results||[],media).filter(m=>{
         const key=media+":"+m.id;
         if(key in RATED) return false;              // redan betygsatt
