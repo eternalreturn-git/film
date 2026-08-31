@@ -244,11 +244,14 @@ function saveKeys(){
   $("#keymodal").classList.remove("show");
   loadGenres();
 }
-function tmdb(path, params={}){
+async function tmdb(path, params={}){
   const u=new URL(TMDB+path);
   u.searchParams.set("api_key", getTmdbKey());
   for(const [k,v] of Object.entries(params)){ if(v!==undefined&&v!==null&&v!=="") u.searchParams.set(k,v); }
-  return fetch(u.toString(),{cache:"no-store"}).then(r=>{ if(!r.ok) throw new Error("TMDb "+r.status); return r.json(); });
+  let r=await fetch(u.toString(),{cache:"no-store"});
+  if(r.status>=500){ await new Promise(x=>setTimeout(x,500)); r=await fetch(u.toString(),{cache:"no-store"}); }  // TMDb 500 = ofta tillfälligt
+  if(!r.ok) throw new Error("TMDb "+r.status);
+  return r.json();
 }
 /* Beständig cache: imdb-id + IMDb-betyg (sparas i webbläsaren → inga upprepade anrop) */
 function loadCache(k){ try{ return JSON.parse(localStorage.getItem(k)||"{}"); }catch(e){ return {}; } }
@@ -441,9 +444,19 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
       raw=tag(d.results||[],"movie"); total_pages=d.total_pages||1;
     }
   }else if(plan.kind==="keywords_and"||plan.kind==="keywords_or"){
-    mode="tema"; const op=plan.kind==="keywords_and"?",":"|"; const kw=plan.ids.join(op);
-    if(isTv){ const dt=await discTv({with_keywords:kw}); raw=tag(dt.results||[],"tv"); total_pages=dt.total_pages||1; }
-    else{ const dm=await discMovie({with_keywords:kw}); raw=tag(dm.results||[],"movie"); total_pages=dm.total_pages||1; }
+    mode="tema"; const op=plan.kind==="keywords_and"?",":"|";
+    const discKw=async kw=>{ try{ return isTv?await discTv({with_keywords:kw}):await discMovie({with_keywords:kw}); }catch(e){ return null; } };
+    let dd=await discKw(plan.ids.join(op));
+    if(!dd){   // TMDb 500 på något nyckelord → prova ett i taget, slå ihop de som funkar
+      const parts=(await Promise.all(plan.ids.map(id=>discKw(""+id)))).filter(Boolean);
+      if(parts.length){
+        const seen=new Set(), merged=[];
+        parts.forEach(p=>(p.results||[]).forEach(m=>{ if(!seen.has(m.id)){ seen.add(m.id); merged.push(m); } }));
+        dd={results:merged, total_pages:Math.max(...parts.map(p=>p.total_pages||1))};
+      }
+    }
+    if(dd){ raw=tag(dd.results||[],media); total_pages=dd.total_pages||1; }
+    // om dd fortfarande null (alla nyckelord trasiga) → tom raw → titel-fallback nedan
   }else{
     mode="titel";
     if(isTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
@@ -604,7 +617,7 @@ async function newReleases(page){
     const gnames=taste.genres.map(g=>GMAP[g]).filter(Boolean).join(", ");
     $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${esc(periodTxt)}.`;
     render(d);
-  }catch(e){ $("#status").textContent="Fel: "+e.message; }
+  }catch(e){ $("#status").textContent=errMsg(e); }
 }
 
 /* ====================== Trailer + detaljer ====================== */
@@ -815,6 +828,7 @@ function rerun(){
   else if(cur.q) go(1);
 }
 
+function errMsg(e){ return (""+(e&&e.message)).includes("500") ? "TMDb har ett tillfälligt serverfel – försök igen om en stund." : "Fel: "+(e&&e.message); }
 // Hoppa förbi sidor som blir tomma av klientfiltren (upp till 5 extra sidor)
 async function seekNonEmpty(fetchPage, d){
   let n=0;
@@ -832,7 +846,7 @@ async function go(page){
   try{
     const fp=p=>searchMovies(q,p,+YMIN.value,+YMAX.value,mediaMode,selectedCats());
     let d=await fp(page); d=await seekNonEmpty(fp,d); render(d);
-  }catch(e){ $("#status").textContent="Fel: "+e.message; $("#grid").innerHTML=""; }
+  }catch(e){ $("#status").textContent=errMsg(e); $("#grid").innerHTML=""; }
 }
 async function recommend(page){
   if(!getTmdbKey()){ openKeys(); return; }
@@ -850,7 +864,7 @@ async function recommend(page){
     if(d.unknown&&d.unknown.length) info+=` <span class="unknown">Hittade inte: ${d.unknown.map(esc).join(", ")}.</span>`;
     $("#recinfo").innerHTML=info;
     render(d);
-  }catch(e){ $("#status").textContent="Fel: "+e.message; }
+  }catch(e){ $("#status").textContent=errMsg(e); }
 }
 function loadPage(p){ (cur.mode==="rec"?recommend:cur.mode==="new"?newReleases:go)(p); }
 
