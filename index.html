@@ -253,10 +253,10 @@ async function tmdb(path, params={}){
     return u.toString();
   };
   let r;
-  for(let a=0;a<4;a++){                        // omförsök med unik cache-buster vid 500
+  for(let a=0;a<3;a++){                        // omförsök med unik cache-buster vid 500
     r=await fetch(build(a?a+"-"+Date.now():""),{cache:"no-store"});
     if(r.status<500) break;
-    if(a<3) await new Promise(x=>setTimeout(x,250));
+    if(a<2) await new Promise(x=>setTimeout(x,200));
   }
   if(!r.ok) throw new Error("TMDb "+r.status);
   return r.json();
@@ -491,7 +491,7 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
     return genreKeep(m,blacklist);
   });
   raw.sort((a,b)=>((b.vote_average||0)-(a.vote_average||0)));
-  raw=raw.slice(0,60);
+  raw=raw.slice(0,30);   // berika färre (en sida visas ändå) → snabbare
   const results=await enrichResults(raw,true);
   return {mode,page,total_pages:Math.min(total_pages,500),results};
 }
