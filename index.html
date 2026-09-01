@@ -504,6 +504,30 @@ function saveRated(){ localStorage.setItem("film_rated", JSON.stringify(RATED));
 
 /* ====================== Rekommendationer ====================== */
 const recCache={};
+
+// Pool för betyg-sortering: hämtar flera API-sidor, berikar med IMDb, sorterar GLOBALT.
+// Så att sida 2 alltid har lägre betyg än sida 1 (annars sorteras bara sidan man ser).
+const poolCache={};
+const POOL_PAGES=4;
+async function buildPool(sig, fetchApiPage){
+  if(poolCache[sig]) return poolCache[sig];
+  const first=await fetchApiPage(1);
+  const maxP=Math.min(first.total_pages||1, POOL_PAGES);
+  const rest=await Promise.all(Array.from({length:Math.max(0,maxP-1)},(_,i)=>fetchApiPage(i+2).catch(()=>({results:[]}))));
+  const items=[...(first.results||[]), ...rest.flatMap(d=>d.results||[])];
+  const seen=new Set(), uniq=[];
+  items.forEach(m=>{ const k=m.media+":"+m.id; if(!seen.has(k)){ seen.add(k); uniq.push(m); } });
+  uniq.sort((a,b)=>ratingOf(b)-ratingOf(a));   // global IMDb-sortering
+  const pool={items:uniq, mode:first.mode};
+  poolCache[sig]=pool;
+  if(Object.keys(poolCache).length>20) delete poolCache[Object.keys(poolCache)[0]];
+  return pool;
+}
+function pagedPool(pool,page){
+  const per=20, tp=Math.max(1,Math.ceil(pool.items.length/per));
+  page=Math.min(Math.max(1,page),tp);
+  return {mode:pool.mode, page, total_pages:tp, results:pool.items.slice((page-1)*per,page*per)};
+}
 async function recommendPool(titles,ymin,ymax,media,genres){
   const isTv=media==="tv";
   const path=isTv?"/search/tv":"/search/movie";
@@ -628,10 +652,14 @@ async function newReleases(page){
       });
       return {mode:"nytt",page:pg,total_pages:Math.min(d.total_pages||1,500),results};
     };
-    let d=await fetchPage(page); d=await seekNonEmpty(fetchPage,d);
     const gnames=taste.genres.map(g=>GMAP[g]).filter(Boolean).join(", ");
     $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${esc(periodTxt)}.`;
-    render(d);
+    if(SORT.value==="rating"){   // global sortering över sidor
+      const sig=JSON.stringify(["n",days,mediaMode,+MINR.value,[...selectedCats()].sort()]);
+      const pool=await buildPool(sig,fetchPage); render(pagedPool(pool,page));
+    }else{
+      let d=await fetchPage(page); d=await seekNonEmpty(fetchPage,d); render(d);
+    }
   }catch(e){ $("#status").textContent=errMsg(e); }
 }
 
@@ -860,7 +888,12 @@ async function go(page){
   $("#status").textContent="Söker…"; $("#pager").innerHTML="";
   try{
     const fp=p=>searchMovies(q,p,+YMIN.value,+YMAX.value,mediaMode,selectedCats());
-    let d=await fp(page); d=await seekNonEmpty(fp,d); render(d);
+    if(SORT.value==="rating"){   // global sortering över sidor
+      const sig=JSON.stringify(["s",q,+YMIN.value,+YMAX.value,mediaMode,+MINR.value,[...selectedCats()].sort()]);
+      const pool=await buildPool(sig,fp); render(pagedPool(pool,page));
+    }else{
+      let d=await fp(page); d=await seekNonEmpty(fp,d); render(d);
+    }
   }catch(e){ $("#status").textContent=errMsg(e); $("#grid").innerHTML=""; }
 }
 async function recommend(page){
