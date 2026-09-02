@@ -508,7 +508,7 @@ const recCache={};
 // Pool för betyg-sortering: hämtar flera API-sidor, berikar med IMDb, sorterar GLOBALT.
 // Så att sida 2 alltid har lägre betyg än sida 1 (annars sorteras bara sidan man ser).
 const poolCache={};
-const POOL_INIT=4, POOL_STEP=4;   // hämta 4 API-sidor först, sedan 4 till åt gången vid behov
+const POOL_INIT=4, POOL_STEP=4, POOL_MAX_PAGES=15;   // 4 sidor först, 4 till vid behov, tak 15 sidor (~300)
 function poolAdd(pool, datas){
   const seen=new Set(pool.items.map(m=>m.media+":"+m.id));
   datas.forEach(d=>((d&&d.results)||[]).forEach(m=>{ const k=m.media+":"+m.id; if(!seen.has(k)){ seen.add(k); pool.items.push(m); } }));
@@ -528,17 +528,19 @@ async function buildPool(sig, fetchApiPage){
 }
 async function pagedPool(pool, page){
   const per=20;
+  const lastApi=Math.min(pool.apiTotal, POOL_MAX_PAGES);   // hur många API-sidor vi som mest hämtar
+  page=Math.min(Math.max(1,page), lastApi);
   // hämta fler API-sidor tills vi har nog för den begärda sidan (eller tar slut)
-  while(pool.items.length < page*per && pool.next<=pool.apiTotal){
-    const n=Math.min(POOL_STEP, pool.apiTotal-pool.next+1);
+  while(pool.items.length < page*per && pool.next<=lastApi){
+    const n=Math.min(POOL_STEP, lastApi-pool.next+1);
     const batch=await Promise.all(Array.from({length:n},(_,i)=>pool.fetch(pool.next+i).catch(()=>({results:[]}))));
     pool.next+=n;
     poolAdd(pool,batch);
   }
-  const more=pool.next<=pool.apiTotal;
   const have=Math.max(1,Math.ceil(pool.items.length/per));
-  const tp=more?have+1:have;   // +1 så "Nästa" finns kvar och kan hämta mer
-  page=Math.min(Math.max(1,page),tp);
+  // visa verkligt tak (API-sidor kvar att hämta), men aldrig fler än vad som faktiskt finns
+  const tp = pool.next<=lastApi ? Math.min(lastApi, Math.max(have,lastApi)) : have;
+  page=Math.min(page,tp);
   return {mode:pool.mode, page, total_pages:tp, results:pool.items.slice((page-1)*per,page*per)};
 }
 async function recommendPool(titles,ymin,ymax,media,genres){
