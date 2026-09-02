@@ -529,19 +529,22 @@ async function buildPool(sig, fetchApiPage){
 async function pagedPool(pool, page){
   const per=20;
   const lastApi=Math.min(pool.apiTotal, POOL_MAX_PAGES);   // hur många API-sidor vi som mest hämtar
-  page=Math.min(Math.max(1,page), lastApi);
-  // hämta fler API-sidor tills vi har nog för den begärda sidan (eller tar slut)
-  while(pool.items.length < page*per && pool.next<=lastApi){
+  page=Math.max(1,page);
+  // filtrera FÖRE paginering (så sidorna fylls trots "Endast IMDb"/betygsgolv)
+  let shown=viewFilter(pool.items);
+  // hämta fler API-sidor tills vi har nog FILTRERADE för den begärda sidan (eller API tar slut)
+  while(shown.length < page*per && pool.next<=lastApi){
     const n=Math.min(POOL_STEP, lastApi-pool.next+1);
     const batch=await Promise.all(Array.from({length:n},(_,i)=>pool.fetch(pool.next+i).catch(()=>({results:[]}))));
     pool.next+=n;
     poolAdd(pool,batch);
+    shown=viewFilter(pool.items);
   }
-  const have=Math.max(1,Math.ceil(pool.items.length/per));
-  // visa verkligt tak (API-sidor kvar att hämta), men aldrig fler än vad som faktiskt finns
-  const tp = pool.next<=lastApi ? Math.min(lastApi, Math.max(have,lastApi)) : have;
+  const more=pool.next<=lastApi;
+  const have=Math.max(1,Math.ceil(shown.length/per));
+  const tp = more ? have+1 : have;   // fler API-sidor kvar → låt "Nästa" hämta mer
   page=Math.min(page,tp);
-  return {mode:pool.mode, page, total_pages:tp, results:pool.items.slice((page-1)*per,page*per)};
+  return {mode:pool.mode, page, total_pages:tp, results:shown.slice((page-1)*per,page*per)};
 }
 async function recommendPool(titles,ymin,ymax,media,genres){
   const isTv=media==="tv";
