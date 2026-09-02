@@ -517,7 +517,7 @@ function poolAdd(pool, datas){
 async function buildPool(sig, fetchApiPage){
   if(poolCache[sig]) return poolCache[sig];
   const first=await fetchApiPage(1);
-  const pool={items:[], mode:first.mode, fetch:fetchApiPage, next:2, apiTotal:first.total_pages||1};
+  const pool={items:[], mode:first.mode, fetch:fetchApiPage, next:2, apiTotal:first.total_pages||1, first};
   const upto=Math.min(pool.apiTotal, POOL_INIT);
   const rest=await Promise.all(Array.from({length:Math.max(0,upto-1)},(_,i)=>fetchApiPage(i+2).catch(()=>({results:[]}))));
   pool.next=upto+1;
@@ -919,7 +919,15 @@ async function recommend(page){
   $("#status").textContent="Letar förslag…"; $("#grid").innerHTML=""; $("#pager").innerHTML="";
   try{
     const fp=p=>recommendMovies(titles,+YMIN.value,+YMAX.value,mediaMode,p,selectedCats());
-    let d=await fp(page); d=await seekNonEmpty(fp,d);
+    let d;
+    if(SORT.value==="rating"){   // global betyg-sortering över sidor (som sök/nya)
+      const sig=JSON.stringify(["r",[...titles].sort(),+YMIN.value,+YMAX.value,mediaMode,+MINR.value,[...selectedCats()].sort()]);
+      const pool=await buildPool(sig,fp);
+      d=await pagedPool(pool,page);
+      d.recognized=pool.first.recognized; d.unknown=pool.first.unknown;
+    }else{
+      d=await fp(page); d=await seekNonEmpty(fp,d);
+    }
     const rec=(d.recognized||[]).map(x=>esc(x.title||x.q)).join(", ");
     let info=rec?`Baserat på: ${rec}.`:"";
     if(d.unknown&&d.unknown.length) info+=` <span class="unknown">Hittade inte: ${d.unknown.map(esc).join(", ")}.</span>`;
