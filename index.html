@@ -245,7 +245,15 @@ function saveKeys(){
   $("#keymodal").classList.remove("show");
   loadGenres();
 }
+// Begränsa samtidiga TMDb-anrop (annars 429 när poolen hämtar många sidor parallellt)
+let _tmdbAktiva=0; const _tmdbKo=[]; const TMDB_MAX=8;
+function _tmdbSlot(){ return new Promise(res=>{ if(_tmdbAktiva<TMDB_MAX){_tmdbAktiva++;res();} else _tmdbKo.push(res); }); }
+function _tmdbSlapp(){ const n=_tmdbKo.shift(); if(n) n(); else _tmdbAktiva--; }
 async function tmdb(path, params={}){
+  await _tmdbSlot();
+  try{ return await _tmdbRa(path, params); } finally{ _tmdbSlapp(); }
+}
+async function _tmdbRa(path, params={}){
   const build=bust=>{
     const u=new URL(TMDB+path);
     u.searchParams.set("api_key", getTmdbKey());
@@ -254,8 +262,13 @@ async function tmdb(path, params={}){
     return u.toString();
   };
   let r;
-  for(let a=0;a<3;a++){                        // omförsök med unik cache-buster vid 500
+  for(let a=0;a<5;a++){                        // omförsök: cache-buster vid 500, väntan vid 429
     r=await fetch(build(a?a+"-"+Date.now():""),{cache:"no-store"});
+    if(r.status===429){   // strypt: vänta (Retry-After om angiven) och försök igen
+      const ra=+(r.headers.get("Retry-After")||0);
+      await new Promise(x=>setTimeout(x, ra>0 ? ra*1000 : 1000*(a+1)));
+      continue;
+    }
     if(r.status<500) break;
     if(a<2) await new Promise(x=>setTimeout(x,200));
   }
