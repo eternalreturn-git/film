@@ -284,6 +284,14 @@ async function _tmdbRa(path, params={}){
 function loadCache(k){ try{ return JSON.parse(localStorage.getItem(k)||"{}"); }catch(e){ return {}; } }
 const brokenKw=new Set();   // nyckelords-id som ger TMDb 500 denna session → hoppas
 let IMDBC=loadCache("film_imdb_cache2");   // imdbId -> {r,t} (v2: med röst-krav)
+// När OMDb:s dygnskvot tar slut: vänta en timme innan nya frågor (sparat så omladdning inte bränner om)
+let omdbSlutTill=+(localStorage.getItem("film_omdb_slut")||0);
+// Engångsrensning: tomma svar sparade medan kvoten var slut förgiftade cachen i 7 dygn
+if(localStorage.getItem("film_omdb_rensa1")!=="1"){
+  for(const k in IMDBC){ const c=IMDBC[k]; if(c&&typeof c==="object"&&c.r==null) delete IMDBC[k]; }
+  try{ localStorage.setItem("film_imdb_cache2",JSON.stringify(IMDBC)); localStorage.setItem("film_omdb_rensa1","1"); }catch(e){}
+}
+function omdbSlut(){ return Date.now()<omdbSlutTill; }
 let EXTC =loadCache("film_ext_cache");    // "media:id" -> imdbId (eller "NONE")
 let cacheTimer=null;
 function saveCaches(){ clearTimeout(cacheTimer); cacheTimer=setTimeout(()=>{
@@ -301,8 +309,12 @@ async function omdbImdb(imdb_id){
     const ttl=c.r==null?NA_TTL:RATED_TTL;
     if(Date.now()-c.t < ttl) return c.r;
   }
+  if(Date.now()<omdbSlutTill) return null;   // kvoten slut → fråga inte, cacha inte
   let out=null;
   try{ const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
+       if(d.Response==="False" && /limit/i.test(d.Error||"")){   // dygnskvoten slut: ALDRIG cacha som "inget betyg"
+         omdbSlutTill=Date.now()+60*60*1000; LS.set("film_omdb_slut",String(omdbSlutTill)); return null;
+       }
        const v=d.imdbRating;
        const votes=+((d.imdbVotes||"").replace(/[^0-9]/g,"")||0);
        if(v&&v!=="N/A"&&votes>=MIN_IMDB_VOTES) out=parseFloat(v);   // kräv tillräckligt många röster
@@ -532,7 +544,7 @@ const recCache={};
 // Pool för betyg-sortering: hämtar flera API-sidor, berikar med IMDb, sorterar GLOBALT.
 // Så att sida 2 alltid har lägre betyg än sida 1 (annars sorteras bara sidan man ser).
 const poolCache={};
-const POOL_MAX_PAGES=12;   // ladda hela poolen direkt (tak 12 API-sidor ~240 filmer) → korrekt sidräkning
+const POOL_MAX_PAGES=6;   // varje sida = upp till 20 OMDb-uppslag; 12 brände dygnskvoten (1000)   // ladda hela poolen direkt (tak 12 API-sidor ~240 filmer) → korrekt sidräkning
 function poolAdd(pool, datas){
   const seen=new Set(pool.items.map(m=>m.media+":"+m.id));
   datas.forEach(d=>((d&&d.results)||[]).forEach(m=>{ const k=m.media+":"+m.id; if(!seen.has(k)){ seen.add(k); pool.items.push(m); } }));
@@ -1025,7 +1037,8 @@ function ratingOf(m){ return (m.imdb_rating!=null?m.imdb_rating:m.tmdb_rating)||
 function viewFilter(results){
   const minR=+MINR.value||0;
   let rows=results.filter(m=>ratingOf(m)>=minR);
-  if(ONLYIMDB.checked) rows=rows.filter(m=>m.imdb_rating!=null);   // dölj TMDb-fallbacks
+  // dölj TMDb-fallbacks — men inte när OMDb-kvoten är slut (då saknar ALLA IMDb-betyg)
+  if(ONLYIMDB.checked && !omdbSlut()) rows=rows.filter(m=>m.imdb_rating!=null);
   if(WEST.checked) rows=rows.filter(m=>WEST_LANGS.has(m.original_language));   // bara USA/EU-språk
   if(SORT.value==="date") rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   else rows.sort((a,b)=>ratingOf(b)-ratingOf(a));
@@ -1047,7 +1060,8 @@ function draw(){
   let emptyMsg="Inga träffar.";
   if(ONLYIMDB.checked) emptyMsg="Inga med IMDb-betyg här – prova att stänga av \"Endast IMDb-betyg\" eller vidga perioden.";
   else if(minR>0) emptyMsg=`Inga med betyg ≥ ${minR.toFixed(1)} här – sänk betyget eller vidga perioden.`;
-  $("#status").textContent=rows.length ? head : emptyMsg;
+  $("#status").textContent=(rows.length ? head : emptyMsg)
+    + (omdbSlut() ? " · OMDb-kvoten (1000/dygn) är slut — visar TMDb-betyg (röda) tills den återställs" : "");
   $("#grid").innerHTML=rows.map(m=>{
     const isImdb=m.imdb_rating!=null;
     const rating=isImdb?`${m.imdb_rating} <small>IMDb</small>`:`${m.tmdb_rating} <small>TMDb</small>`;
