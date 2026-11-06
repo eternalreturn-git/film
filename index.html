@@ -616,17 +616,29 @@ function isoToday(){ return new Date().toISOString().slice(0,10); }
 async function tasteProfile(titles,media){
   const ck=JSON.stringify([titles,media]);
   if(tasteCache[ck]) return tasteCache[ck];
-  const path=media==="tv"?"/search/tv":"/search/movie";
+  // Favoriterna slås upp som film ELLER serie (multi) och genrerna översätts till rätt mediatyp.
+  // Att söka filmfavoriter bland TV-serier gav slumpträffar → smak som "Animation, Dokumentär".
+  const M2TV={28:10759,12:10759,878:10765,14:10765,27:9648,53:9648,10752:10768};
+  const TV2M={10759:28,10765:878,10768:10752};
   const counts={}, own=new Set();
   await Promise.all(titles.map(async t=>{
     try{
-      const res=((await tmdb(path,{query:t,include_adult:"false",language:"en-US"})).results||[]);
+      const res=((await tmdb("/search/multi",{query:t,include_adult:"false",language:"en-US"})).results||[])
+        .filter(r=>r.media_type==="movie"||r.media_type==="tv");
       const hit=res[0]; if(!hit) return;
-      own.add(media+":"+hit.id);
-      (hit.genre_ids||[]).forEach(g=>counts[g]=(counts[g]||0)+1);
+      own.add(hit.media_type+":"+hit.id);
+      const seen=new Set();
+      (hit.genre_ids||[]).forEach(g=>{
+        let x=g;
+        if(media==="tv"&&hit.media_type==="movie") x=M2TV[g]||g;
+        if(media==="movie"&&hit.media_type==="tv") x=TV2M[g]||g;
+        if(seen.has(x)) return; seen.add(x);   // en favorit räknas en gång per genre
+        counts[x]=(counts[x]||0)+1;
+      });
     }catch(e){}
   }));
-  const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  const BORT=new Set([99,10763,10764,10767]);   // dokumentär/nyheter/reality/talk är ingen "smak"
+  const sorted=Object.entries(counts).filter(e=>!BORT.has(+e[0])).sort((a,b)=>b[1]-a[1]);
   let top=sorted.filter(e=>e[1]>=2).map(e=>+e[0]);
   if(top.length<2) top=sorted.slice(0,3).map(e=>+e[0]);
   const out={genres:top.slice(0,5), counts, own};
