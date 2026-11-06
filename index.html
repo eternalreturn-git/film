@@ -188,6 +188,7 @@
     </select>
   </label>
   <label><input type="checkbox" id="onlyimdb"> Endast IMDb-betyg</label>
+  <label><input type="checkbox" id="westonly"> Endast USA/EU</label>
 </div>
 
 <div class="yearbox">
@@ -431,12 +432,13 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
   const {blacklist,without}=genreSetup(genres);
   const minR=+MINR.value||0;
   const vaFloor=minR>0?{"vote_average.gte":Math.max(0,minR-1)}:{};   // fyllnadare sidor vid betygsgolv
+  const woc=WEST.checked?{with_origin_country:WEST_COUNTRIES}:{};    // bara USA/EU-ursprung
   const discMovie=ex=>tmdb("/discover/movie",Object.assign(
     {"vote_count.gte":100,"primary_release_date.gte":ymin+"-01-01","primary_release_date.lte":ymax+"-12-31",
-     sort_by:discSort(false),include_adult:"false",language:"en-US",page,without_genres:without},vaFloor,ex||{}));
+     sort_by:discSort(false),include_adult:"false",language:"en-US",page,without_genres:without},vaFloor,woc,ex||{}));
   const discTv=ex=>tmdb("/discover/tv",Object.assign(
     {"vote_count.gte":40,"first_air_date.gte":ymin+"-01-01","first_air_date.lte":ymax+"-12-31",
-     sort_by:discSort(true),language:"en-US",page,without_genres:without},vaFloor,ex||{}));
+     sort_by:discSort(true),language:"en-US",page,without_genres:without},vaFloor,woc,ex||{}));
 
   let raw=[], total_pages=1, mode;
   if(plan.kind==="person"){
@@ -630,6 +632,7 @@ async function newReleases(page){
     const fetchPage=async pg=>{
       const p={sort_by:discSort(isTv),language:"en-US",page:pg,without_genres:without,
                with_genres:taste.genres.join("|")};
+      if(WEST.checked) p.with_origin_country=WEST_COUNTRIES;   // bara USA/EU-ursprung
       if(minR>0) p["vote_average.gte"]=Math.max(0,minR-1);
       // röst-tröskel så 1-röstsfilmer (falska 10:or) aldrig dyker upp; skalar med fönstret
       const vc = days<=7 ? (isTv?10:20) : days<=31 ? (isTv?20:50) : (isTv?30:100);
@@ -659,7 +662,7 @@ async function newReleases(page){
     const gnames=taste.genres.map(g=>GMAP[g]).filter(Boolean).join(", ");
     $("#newinfo").innerHTML=`Din smak: ${esc(gnames)} — släppt senaste ${esc(periodTxt)}.`;
     if(SORT.value==="rating"){   // global sortering över sidor
-      const sig=JSON.stringify(["n",days,mediaMode,+MINR.value,[...selectedCats()].sort()]);
+      const sig=JSON.stringify(["n",days,mediaMode,+MINR.value,WEST.checked,[...selectedCats()].sort()]);
       const pool=await buildPool(sig,fetchPage); render(await pagedPool(pool,page));
     }else{
       let d=await fetchPage(page); d=await seekNonEmpty(fetchPage,d); render(d);
@@ -734,6 +737,16 @@ SORT.addEventListener("change",()=>{ LS.set("film_sort",SORT.value); rerun(); })
 const ONLYIMDB=$("#onlyimdb");
 ONLYIMDB.checked=LS.get("film_onlyimdb","0")==="1";
 ONLYIMDB.addEventListener("change",()=>{ LS.set("film_onlyimdb",ONLYIMDB.checked?"1":"0"); draw(); });
+
+// Endast USA/EU – filtrerar bort asiatiskt/Bollywood m.m.
+const WEST=$("#westonly");
+WEST.checked=LS.get("film_west","0")==="1";
+WEST.addEventListener("change",()=>{ LS.set("film_west",WEST.checked?"1":"0"); rerun(); });   // rerun: ändrar API-frågan
+// Originalspråk som räknas som västerländskt (USA/EU + engelskspråkigt Väst)
+const WEST_LANGS=new Set(["en","fr","de","it","es","pt","nl","sv","da","no","nb","nn","fi","is",
+  "pl","cs","sk","hu","ro","el","bg","hr","sr","sl","uk","ca","ga","gd","cy","et","lv","lt","mt","lb","eu","gl"]);
+// Ursprungsländer (ISO 3166-1) för discover: USA + EU + UK/Irland + Kanada/Australien/NZ
+const WEST_COUNTRIES="US|GB|CA|IE|AU|NZ|FR|DE|IT|ES|PT|NL|BE|LU|AT|CH|SE|NO|DK|FI|IS|PL|CZ|SK|HU|RO|GR|HR|RS|SI|BG|EE|LV|LT|MT|UA";
 
 // Periodval för "Nya filmer" (kommer ihåg sig)
 const NEWP=$("#newperiod");
@@ -893,7 +906,7 @@ async function go(page){
   try{
     const fp=p=>searchMovies(q,p,+YMIN.value,+YMAX.value,mediaMode,selectedCats());
     if(SORT.value==="rating"){   // global sortering över sidor
-      const sig=JSON.stringify(["s",q,+YMIN.value,+YMAX.value,mediaMode,+MINR.value,[...selectedCats()].sort()]);
+      const sig=JSON.stringify(["s",q,+YMIN.value,+YMAX.value,mediaMode,+MINR.value,WEST.checked,[...selectedCats()].sort()]);
       const pool=await buildPool(sig,fp); render(await pagedPool(pool,page));
     }else{
       let d=await fp(page); d=await seekNonEmpty(fp,d); render(d);
@@ -979,6 +992,7 @@ function viewFilter(results){
   const minR=+MINR.value||0;
   let rows=results.filter(m=>ratingOf(m)>=minR);
   if(ONLYIMDB.checked) rows=rows.filter(m=>m.imdb_rating!=null);   // dölj TMDb-fallbacks
+  if(WEST.checked) rows=rows.filter(m=>WEST_LANGS.has(m.original_language));   // bara USA/EU-språk
   if(SORT.value==="date") rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   else rows.sort((a,b)=>ratingOf(b)-ratingOf(a));
   return rows;
