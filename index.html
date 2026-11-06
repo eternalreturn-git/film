@@ -227,6 +227,11 @@
 </div>
 
 <script>
+// Visa skriptfel direkt på sidan (annars ser en krasch ut som "inget händer")
+window.addEventListener("error",e=>{ const s=document.getElementById("status");
+  if(s) s.textContent="Skriptfel: "+e.message+" (rad "+e.lineno+")"; });
+window.addEventListener("unhandledrejection",e=>{ const s=document.getElementById("status");
+  if(s) s.textContent="Fel: "+((e.reason&&e.reason.message)||e.reason); });
 /* ====================== Konfiguration / nycklar ====================== */
 // Inbäddade nycklar – följer med filen till alla enheter (ingen inmatning behövs).
 const DEFAULT_TMDB_KEY="b019a3aee56b1a9cbe0600f130d8877e";
@@ -913,7 +918,8 @@ async function seekNonEmpty(fetchPage, d){
 }
 async function go(page){
   if(!getTmdbKey()){ openKeys(); return; }
-  const q=$("#q").value.trim(); if(!q) return;
+  const q=$("#q").value.trim();
+  if(!q){ $("#status").textContent="Skriv något att söka på."; return; }
   cur.q=q; cur.page=page; cur.mode="search";
   $("#status").textContent="Söker…"; $("#pager").innerHTML="";
   try{
