@@ -138,7 +138,7 @@
 
 <div class="panel active" id="panel-search">
   <div class="searchbar">
-    <input id="q" placeholder="Tema, titel, skådespelare eller regissör…" autofocus>
+    <input id="q" placeholder="Tema, titel, skådespelare eller regissör… (tomt = topplista)" autofocus>
     <button onclick="go(1)">Sök</button>
   </div>
 </div>
@@ -446,7 +446,7 @@ async function enrichResults(raw,sort){
 /* ====================== Sökning ====================== */
 async function searchMovies(query,page,ymin,ymax,media,genres){
   const isTv=media==="tv";
-  const plan=await resolveQuery(query);
+  const plan=query ? await resolveQuery(query) : {kind:"top"};   // tom sökning = topplista
   const {blacklist,without}=genreSetup(genres);
   const minR=+MINR.value||0;
   const vaFloor=minR>0?{"vote_average.gte":Math.max(0,minR-1)}:{};   // fyllnadare sidor vid betygsgolv
@@ -459,7 +459,11 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
      sort_by:discSort(true),language:"en-US",page,without_genres:without},vaFloor,woc,ex||{}));
 
   let raw=[], total_pages=1, mode;
-  if(plan.kind==="person"){
+  if(plan.kind==="top"){
+    mode="topplista";
+    const d=isTv?await discTv({}):await discMovie({"vote_count.gte":500});
+    raw=tag(d.results||[],media); total_pages=d.total_pages||1;
+  }else if(plan.kind==="person"){
     mode="person";
     if(isTv){
       let cc={}; try{ cc=await tmdb(`/person/${plan.person}/tv_credits`,{language:"en-US"}); }catch(e){}
@@ -497,7 +501,7 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
 
   // Fallback: tema/person gav inget → tolka det som en TITEL istället
   // (t.ex. "the thing", "batman" råkar matcha nyckelord men är egentligen titlar)
-  if(raw.length===0 && mode!=="titel"){
+  if(raw.length===0 && mode!=="titel" && mode!=="topplista"){
     mode="titel";
     if(isTv){ const st=await tmdb("/search/tv",{query,include_adult:"false",language:"en-US",page});
       raw=tag(st.results||[],"tv"); total_pages=st.total_pages||1; }
@@ -918,9 +922,8 @@ async function seekNonEmpty(fetchPage, d){
 }
 async function go(page){
   if(!getTmdbKey()){ openKeys(); return; }
-  const q=$("#q").value.trim();
-  if(!q){ $("#status").textContent="Skriv något att söka på."; return; }
-  cur.q=q; cur.page=page; cur.mode="search";
+  const q=$("#q").value.trim();   // tom = topplista med dina filter
+  cur.q=q||" "; cur.page=page; cur.mode="search";
   $("#status").textContent="Söker…"; $("#pager").innerHTML="";
   try{
     const fp=p=>searchMovies(q,p,+YMIN.value,+YMAX.value,mediaMode,selectedCats());
@@ -1024,7 +1027,7 @@ function draw(){
   const minR=+MINR.value||0;
   const rows=viewFilter(d.results);
   const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",
-                 rekommendation:"förslag åt dig",nytt:"nya släpp i din smak"}[d.mode]||d.mode;
+                 rekommendation:"förslag åt dig",nytt:"nya släpp i din smak",topplista:"topplista"}[d.mode]||d.mode;
   const filtNote=minR>0?` (betyg ≥ ${minR.toFixed(1)})`:"";
   const head = d.total_pages>1
     ? `Sida ${d.page} av ${d.total_pages} · ${rows.length} på sidan (${modeTxt})${filtNote}`
