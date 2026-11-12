@@ -397,7 +397,10 @@ async function keywordIds(term){
   const seen=new Set(), ids=[];
   for(const c of cands){
     let r=[]; try{ r=(await tmdb("/search/keyword",{query:c})).results||[]; }catch(e){}
-    for(const k of r.slice(0,3)) if(!seen.has(k.id)){ seen.add(k.id); ids.push(k.id); }
+    // alla varianter av ordet (bank robbery, train robbery ...) + de 3 främsta, max 20
+    const cl=c.toLowerCase();
+    const take=r.filter((k,i)=>i<3||(k.name||"").toLowerCase().includes(cl)).slice(0,20);
+    for(const k of take) if(!seen.has(k.id)){ seen.add(k.id); ids.push(k.id); }
     if(ids.length) break;
   }
   return ids;
@@ -491,7 +494,7 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
   }else if(plan.kind==="keywords_and"||plan.kind==="keywords_or"){
     mode="tema"; const op=plan.kind==="keywords_and"?",":"|";
     const ids=plan.ids.filter(id=>!brokenKw.has(id));   // hoppa kända trasiga nyckelord direkt
-    const discKw=async kw=>{ try{ return isTv?await discTv({with_keywords:kw}):await discMovie({with_keywords:kw}); }catch(e){ return null; } };
+    const discKw=async kw=>{ try{ return isTv?await discTv({with_keywords:kw,"vote_count.gte":15}):await discMovie({with_keywords:kw}); }catch(e){ return null; } };
     let dd = ids.length ? await discKw(ids.join(op)) : null;
     if(!dd && ids.length){   // TMDb 500 → prova ett i taget, markera trasiga så de hoppas nästa gång
       const parts=(await Promise.all(ids.map(async id=>{ const r=await discKw(""+id); if(!r) brokenKw.add(id); return r; }))).filter(Boolean);
