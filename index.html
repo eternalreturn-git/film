@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Filmutforskare 1.02</title>
+<title>Filmutforskare 1.03</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='56' height='40' rx='6' fill='%23171b22' stroke='%234da3ff' stroke-width='3'/%3E%3Cpath d='M4 26 L60 26' stroke='%234da3ff' stroke-width='2'/%3E%3Cg fill='%234da3ff'%3E%3Cpolygon points='10,14 18,14 12,26 4,26'/%3E%3Cpolygon points='22,14 30,14 24,26 16,26'/%3E%3Cpolygon points='34,14 42,14 36,26 28,26'/%3E%3Cpolygon points='46,14 54,14 48,26 40,26'/%3E%3C/g%3E%3Cpolygon points='26,34 26,48 40,41' fill='%23f5c451'/%3E%3C/svg%3E">
 <style>
   :root{--bg:#0e1116;--card:#171b22;--mut:#8b97a7;--fg:#e7ecf2;--acc:#4da3ff;--gold:#f5c451}
@@ -126,7 +126,7 @@
 <body>
 
 <header>
-  <h1>Filmutforskare 1.02</h1>
+  <h1>Filmutforskare 1.03</h1>
   <div class="sub">Sök på <b>tema</b> (fängelsefilm, rymd, heist), <b>titel</b>, <b>skådespelare</b> eller <b>regissör</b> (Van Damme, Tarantino) — sorterat efter betyg</div>
 </header>
 
@@ -206,6 +206,10 @@
 <div class="catlabel">Kategorier — avmarkera en för att dölja den (allt ikryssat = inga begränsningar)</div>
 <div class="cats" id="cats"></div>
 
+<div id="kvot" style="max-width:420px;margin:6px auto 0;font-size:12px;color:#9aa">
+  <div style="display:flex;justify-content:space-between"><span>OMDb-kvot idag (IMDb-betyg)</span><span id="kvotTxt"></span></div>
+  <div style="height:6px;background:#222;border-radius:3px;overflow:hidden"><div id="kvotBar" style="height:100%;width:100%;background:#3b82f6;transition:width .3s"></div></div>
+</div>
 <div class="status" id="status"></div>
 <div class="grid" id="grid"></div>
 <div class="pager" id="pager"></div>
@@ -301,6 +305,19 @@ function saveCaches(){ clearTimeout(cacheTimer); cacheTimer=setTimeout(()=>{
 
 const RATED_TTL=14*864e5, NA_TTL=7*864e5;   // betyg omkollas efter 14 dygn, tomt efter 7
 const MIN_IMDB_VOTES=1000;   // färre röster än så = opålitligt betyg (t.ex. 10 från 8 röster) → ignoreras
+// Kvotmätare: räknar egna OMDb-anrop per dygn (OMDb visar inte kvoten själv, så det är en uppskattning;
+// andra enheter med samma nyckel syns inte). Sätts till 0 när OMDb svarar "limit reached".
+const OMDB_KVOT=1000;
+function _kvotDag(){ return new Date().toISOString().slice(0,10); }
+function kvotLas(){ try{ const k=JSON.parse(localStorage.getItem("film_omdb_kvot")||"{}"); return k.d===_kvotDag()?k:{d:_kvotDag(),n:0}; }catch(e){ return {d:_kvotDag(),n:0}; } }
+function kvotVisa(){
+  const k=kvotLas(); const slut=Date.now()<omdbSlutTill;
+  const kvar=slut?0:Math.max(0,OMDB_KVOT-k.n); const pct=Math.round(kvar/OMDB_KVOT*100);
+  const bar=document.getElementById("kvotBar"), txt=document.getElementById("kvotTxt"); if(!bar) return;
+  bar.style.width=pct+"%"; bar.style.background=pct>30?"#3b82f6":pct>10?"#d4a017":"#c0392b";
+  txt.textContent=slut?"slut, återställs inom ett dygn":(pct+" % (~"+kvar+" kvar)");
+}
+function kvotRakna(){ const k=kvotLas(); k.n++; localStorage.setItem("film_omdb_kvot",JSON.stringify(k)); kvotVisa(); }
 async function omdbImdb(imdb_id){
   const key=getOmdbKey(); if(!key||!imdb_id) return null;
   const c=IMDBC[imdb_id];
@@ -311,9 +328,9 @@ async function omdbImdb(imdb_id){
   }
   if(Date.now()<omdbSlutTill) return null;   // kvoten slut → fråga inte, cacha inte
   let out=null;
-  try{ const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
+  try{ kvotRakna(); const r=await fetch(`https://www.omdbapi.com/?i=${imdb_id}&apikey=${key}`); const d=await r.json();
        if(d.Response==="False" && /limit/i.test(d.Error||"")){   // dygnskvoten slut: ALDRIG cacha som "inget betyg"
-         omdbSlutTill=Date.now()+60*60*1000; LS.set("film_omdb_slut",String(omdbSlutTill)); return null;
+         omdbSlutTill=Date.now()+60*60*1000; LS.set("film_omdb_slut",String(omdbSlutTill)); kvotVisa(); return null;
        }
        const v=d.imdbRating;
        const votes=+((d.imdbVotes||"").replace(/[^0-9]/g,"")||0);
@@ -1169,6 +1186,7 @@ tab(LS.get("film_tab","search")==="rec"?"rec":"search",true);
   if(!getTmdbKey()){ openKeys(); return; }
   await loadGenres();
   await restoreFavFile();     // återanslut ev. sparad favoritfil
+  kvotVisa();
 })();
 </script>
 </body>
