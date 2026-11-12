@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Filmutforskare 1.01</title>
+<title>Filmutforskare 1.02</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='56' height='40' rx='6' fill='%23171b22' stroke='%234da3ff' stroke-width='3'/%3E%3Cpath d='M4 26 L60 26' stroke='%234da3ff' stroke-width='2'/%3E%3Cg fill='%234da3ff'%3E%3Cpolygon points='10,14 18,14 12,26 4,26'/%3E%3Cpolygon points='22,14 30,14 24,26 16,26'/%3E%3Cpolygon points='34,14 42,14 36,26 28,26'/%3E%3Cpolygon points='46,14 54,14 48,26 40,26'/%3E%3C/g%3E%3Cpolygon points='26,34 26,48 40,41' fill='%23f5c451'/%3E%3C/svg%3E">
 <style>
   :root{--bg:#0e1116;--card:#171b22;--mut:#8b97a7;--fg:#e7ecf2;--acc:#4da3ff;--gold:#f5c451}
@@ -126,7 +126,7 @@
 <body>
 
 <header>
-  <h1>Filmutforskare 1.01</h1>
+  <h1>Filmutforskare 1.02</h1>
   <div class="sub">Sök på <b>tema</b> (fängelsefilm, rymd, heist), <b>titel</b>, <b>skådespelare</b> eller <b>regissör</b> (Van Damme, Tarantino) — sorterat efter betyg</div>
 </header>
 
@@ -389,6 +389,17 @@ function tag(list,mt){ list.forEach(x=>x._mt=mt); return list; }
 async function firstKeywordId(term){
   try{ const r=(await tmdb("/search/keyword",{query:term})).results||[]; return r.length?r[0].id:null; }catch(e){ return null; }
 }
+// närliggande teman: TMDb märker samma sak med olika ord (robbery/heist), sök på alla
+const TEMA_SYN={robbery:["heist","bank robbery"],heist:["robbery","bank robbery"],
+ prison:["prison escape","jail","prisoner"],jail:["prison"],escape:["prison escape"],
+ "serial killer":["murder","detective"],murder:["murder investigation","homicide"],
+ detective:["investigation","police detective"],police:["police procedural","detective","cop"],
+ spy:["espionage","secret agent","cia"],espionage:["spy"],mafia:["organized crime","gangster","mob"],
+ gangster:["organized crime","mafia"],drugs:["drug cartel","drug dealer","drug trafficking"],
+ cartel:["drug cartel"],zombie:["zombie apocalypse"],apocalypse:["post-apocalyptic future","dystopia"],
+ dystopia:["post-apocalyptic future","dystopian"],space:["outer space","spaceship","space travel"],
+ "time travel":["time loop"],war:["world war ii","soldier"],con:["con artist","swindle"],
+ survival:["survivalist","wilderness"],revenge:["vengeance"],lawyer:["courtroom","legal drama"]};
 async function keywordIds(term){
   const cands=[]; const t=term.trim().toLowerCase();
   if(SV2EN[t]) cands.push(SV2EN[t]);
@@ -402,6 +413,15 @@ async function keywordIds(term){
     const take=r.filter((k,i)=>i<3||(k.name||"").toLowerCase().includes(cl)).slice(0,20);
     for(const k of take) if(!seen.has(k.id)){ seen.add(k.id); ids.push(k.id); }
     if(ids.length) break;
+  }
+  if(ids.length){   // lägg till närliggande teman (max 40 nyckelord totalt)
+    const base=(SV2EN[t]||t).toLowerCase();
+    for(const syn of (TEMA_SYN[base]||[])){
+      let r=[]; try{ r=(await tmdb("/search/keyword",{query:syn})).results||[]; }catch(e){}
+      const sl=syn.toLowerCase();
+      for(const k of r.filter((k,i)=>i<2||(k.name||"").toLowerCase().includes(sl)).slice(0,10))
+        if(!seen.has(k.id)&&ids.length<40){ seen.add(k.id); ids.push(k.id); }
+    }
   }
   return ids;
 }
