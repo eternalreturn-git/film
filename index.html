@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Filmutforskare 1.04</title>
+<title>Filmutforskare 1.05</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='56' height='40' rx='6' fill='%23171b22' stroke='%234da3ff' stroke-width='3'/%3E%3Cpath d='M4 26 L60 26' stroke='%234da3ff' stroke-width='2'/%3E%3Cg fill='%234da3ff'%3E%3Cpolygon points='10,14 18,14 12,26 4,26'/%3E%3Cpolygon points='22,14 30,14 24,26 16,26'/%3E%3Cpolygon points='34,14 42,14 36,26 28,26'/%3E%3Cpolygon points='46,14 54,14 48,26 40,26'/%3E%3C/g%3E%3Cpolygon points='26,34 26,48 40,41' fill='%23f5c451'/%3E%3C/svg%3E">
 <style>
   :root{--bg:#0e1116;--card:#171b22;--mut:#8b97a7;--fg:#e7ecf2;--acc:#4da3ff;--gold:#f5c451}
@@ -126,7 +126,7 @@
 <body>
 
 <header>
-  <h1>Filmutforskare 1.04</h1>
+  <h1>Filmutforskare 1.05</h1>
   <div class="sub">Sök på <b>tema</b> (fängelsefilm, rymd, heist), <b>titel</b>, <b>skådespelare</b> eller <b>regissör</b> (Van Damme, Tarantino) — sorterat efter betyg</div>
 </header>
 
@@ -524,6 +524,9 @@ async function searchMovies(query,page,ymin,ymax,media,genres){
         if((c.vote_count||0)<10)continue;
         if(seen.has(c.id))continue; seen.add(c.id); c._mt="tv"; raw.push(c);
       }
+      // TMDb ger ALLA krediter i ett svar (ingen sidindelning) → dela upp här, annars blev varje sida likadan
+      raw.sort((a,b)=>(b.vote_average||0)-(a.vote_average||0));
+      total_pages=Math.max(1,Math.ceil(raw.length/20)); raw=raw.slice((page-1)*20,page*20);
     }else{
       const d=await discMovie({with_people:plan.person,"vote_count.gte":80});
       raw=tag(d.results||[],"movie"); total_pages=d.total_pages||1;
