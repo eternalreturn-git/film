@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Filmutforskare 1.07</title>
+<title>Filmutforskare 1.08</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='56' height='40' rx='6' fill='%23171b22' stroke='%234da3ff' stroke-width='3'/%3E%3Cpath d='M4 26 L60 26' stroke='%234da3ff' stroke-width='2'/%3E%3Cg fill='%234da3ff'%3E%3Cpolygon points='10,14 18,14 12,26 4,26'/%3E%3Cpolygon points='22,14 30,14 24,26 16,26'/%3E%3Cpolygon points='34,14 42,14 36,26 28,26'/%3E%3Cpolygon points='46,14 54,14 48,26 40,26'/%3E%3C/g%3E%3Cpolygon points='26,34 26,48 40,41' fill='%23f5c451'/%3E%3C/svg%3E">
 <style>
   :root{--bg:#0e1116;--card:#171b22;--mut:#8b97a7;--fg:#e7ecf2;--acc:#4da3ff;--gold:#f5c451}
@@ -126,7 +126,7 @@
 <body>
 
 <header>
-  <h1>Filmutforskare 1.07</h1>
+  <h1>Filmutforskare 1.08</h1>
   <div class="sub">Sök på <b>tema</b> (fängelsefilm, rymd, heist), <b>titel</b>, <b>skådespelare</b> eller <b>regissör</b> (Van Damme, Tarantino) — sorterat efter betyg</div>
 </header>
 
@@ -623,21 +623,29 @@ async function buildPool(sig, fetchApiPage){
   if(Object.keys(poolCache).length>15) delete poolCache[Object.keys(poolCache)[0]];
   return pool;
 }
+// Sidorna LÅSES när de byggs: sida k = de första 20 titlarna som klarar filtren och inte redan
+// visats på en tidigare sida. Då kan inget visas två gånger, även om filtrets utfall ändras mellan
+// sidbyten (t.ex. när OMDb-kvoten tar slut och "Endast IMDb" slutar gälla).
 async function pagedPool(pool, page){
-  const per=20;
+  const per=20, key=m=>m.media+":"+m.id;
+  if(!pool.sidor) pool.sidor=[];
   page=Math.max(1,page);
-  // hämta tills begärd sida är full (tak 8 API-sidor per bläddring så ett filter som tömmer allt inte bränner kvoten)
-  let n=0;
-  while(viewFilter(pool.items,true).length<page*per && poolMer(pool) && n++<8) await poolGrow(pool);
-  let shown=viewFilter(pool.items,true);   // filtrera FÖRE paginering
-  // Sidnumret får ALDRIG klämmas till en tidigare sida (då visades samma titlar igen under nytt nummer).
-  // Bara om sidan ligger helt bortom allt som finns och inget mer går att hämta → sista riktiga sidan.
-  const sista=Math.max(1,Math.ceil(shown.length/per));
-  if((page-1)*per>=shown.length && !poolMer(pool)) page=sista;
-  const mer=poolMer(pool);
-  const tp=Math.max(page, sista+(mer?1:0));
-  if(mer && shown.length<(page+1)*per) poolGrow(pool);   // förladda nästa sida i bakgrunden
-  return {mode:pool.mode, page, total_pages:tp, results:shown.slice((page-1)*per,page*per)};
+  while(pool.sidor.length<page){
+    const used=new Set(pool.sidor.flat().map(key));
+    const ledigt=()=>viewFilter(pool.items,true).filter(m=>!used.has(key(m)));
+    let n=0;   // tak 8 API-sidor per byggd sida (filter som tömmer allt får inte bränna kvoten)
+    while(ledigt().length<per && poolMer(pool) && n++<8) await poolGrow(pool);
+    const nya=ledigt().slice(0,per);
+    if(!nya.length) break;   // inget mer finns
+    pool.sidor.push(nya);
+  }
+  page=Math.min(page, Math.max(1,pool.sidor.length));
+  const used=new Set(pool.sidor.flat().map(key));
+  const restFinns=viewFilter(pool.items,true).some(m=>!used.has(key(m)));
+  const mer=poolMer(pool)||restFinns;
+  const tp=Math.max(1,pool.sidor.length)+(mer?1:0);
+  if(poolMer(pool) && !restFinns) poolGrow(pool);   // förladda i bakgrunden
+  return {mode:pool.mode, page, total_pages:Math.max(tp,page), results:pool.sidor[page-1]||[]};
 }
 async function recommendPool(titles,ymin,ymax,media,genres){
   const isTv=media==="tv";
