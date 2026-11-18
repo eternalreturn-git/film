@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Filmutforskare 1.06</title>
+<title>Filmutforskare 1.07</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='14' width='56' height='40' rx='6' fill='%23171b22' stroke='%234da3ff' stroke-width='3'/%3E%3Cpath d='M4 26 L60 26' stroke='%234da3ff' stroke-width='2'/%3E%3Cg fill='%234da3ff'%3E%3Cpolygon points='10,14 18,14 12,26 4,26'/%3E%3Cpolygon points='22,14 30,14 24,26 16,26'/%3E%3Cpolygon points='34,14 42,14 36,26 28,26'/%3E%3Cpolygon points='46,14 54,14 48,26 40,26'/%3E%3C/g%3E%3Cpolygon points='26,34 26,48 40,41' fill='%23f5c451'/%3E%3C/svg%3E">
 <style>
   :root{--bg:#0e1116;--card:#171b22;--mut:#8b97a7;--fg:#e7ecf2;--acc:#4da3ff;--gold:#f5c451}
@@ -126,7 +126,7 @@
 <body>
 
 <header>
-  <h1>Filmutforskare 1.06</h1>
+  <h1>Filmutforskare 1.07</h1>
   <div class="sub">Sök på <b>tema</b> (fängelsefilm, rymd, heist), <b>titel</b>, <b>skådespelare</b> eller <b>regissör</b> (Van Damme, Tarantino) — sorterat efter betyg</div>
 </header>
 
@@ -628,8 +628,8 @@ async function pagedPool(pool, page){
   page=Math.max(1,page);
   // hämta tills begärd sida är full (tak 8 API-sidor per bläddring så ett filter som tömmer allt inte bränner kvoten)
   let n=0;
-  while(viewFilter(pool.items).length<page*per && poolMer(pool) && n++<8) await poolGrow(pool);
-  let shown=viewFilter(pool.items);   // filtrera FÖRE paginering
+  while(viewFilter(pool.items,true).length<page*per && poolMer(pool) && n++<8) await poolGrow(pool);
+  let shown=viewFilter(pool.items,true);   // filtrera FÖRE paginering
   // Sidnumret får ALDRIG klämmas till en tidigare sida (då visades samma titlar igen under nytt nummer).
   // Bara om sidan ligger helt bortom allt som finns och inget mer går att hämta → sista riktiga sidan.
   const sista=Math.max(1,Math.ceil(shown.length/per));
@@ -1105,12 +1105,14 @@ const RATEBOX=`<div class="ratebox"><span class="ratelabel">Redan sett?</span><d
 let curData=null;
 function ratingOf(m){ return (m.imdb_rating!=null?m.imdb_rating:m.tmdb_rating)||0; }
 // Klientfilter (betygsgolv + endast-IMDb) + sortering — delas av draw och tom-sid-hoppet
-function viewFilter(results){
+function viewFilter(results, behallOrdning){
   const minR=+MINR.value||0;
   let rows=results.filter(m=>ratingOf(m)>=minR);
   // dölj TMDb-fallbacks — men inte när OMDb-kvoten är slut (då saknar ALLA IMDb-betyg)
   if(ONLYIMDB.checked && !omdbSlut()) rows=rows.filter(m=>m.imdb_rating!=null);
   if(WEST.checked) rows=rows.filter(m=>WEST_LANGS.has(m.original_language));   // bara USA/EU-språk
+  // poolen är redan sorterad per hämtad batch: omsortering här flyttade sena titlar in på sidor man redan sett
+  if(behallOrdning) return rows;
   if(SORT.value==="date") rows.sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   else rows.sort((a,b)=>ratingOf(b)-ratingOf(a));
   return rows;
@@ -1121,7 +1123,7 @@ function draw(){
   cur.tot=d.total_pages||1;
   const isRec=(d.mode==="rekommendation"||d.mode==="nytt");   // betygsrad på förslag + nya
   const minR=+MINR.value||0;
-  const rows=viewFilter(d.results);
+  const rows=viewFilter(d.results);   // sortering inom sidan är ofarlig
   const modeTxt={person:"skådespelare/regissör",tema:"tematisk träff",titel:"titelsökning",
                  rekommendation:"förslag åt dig",nytt:"nya släpp i din smak",topplista:"topplista"}[d.mode]||d.mode;
   const filtNote=minR>0?` (betyg ≥ ${minR.toFixed(1)})`:"";
